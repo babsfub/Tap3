@@ -1,5 +1,5 @@
 // lib/services/api.ts
-import type { CardInfo, CardDesign } from '$lib/types.js';
+import type { CardDesign } from '$lib/types.js';
 
 class ApiService {
   private baseUrl: string = 'https://api.tap3.me/';

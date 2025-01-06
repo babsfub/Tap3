@@ -3,7 +3,7 @@ import { setContext, getContext } from 'svelte';
 import type { Address, Hash } from 'viem';
 import type { TransactionRecord } from '../types.js';
 import { walletService } from '../services/wallet.js';
-import { polygon } from 'viem/chains';
+
 
 interface TransactionHistory {
   [address: string]: TransactionRecord[];
