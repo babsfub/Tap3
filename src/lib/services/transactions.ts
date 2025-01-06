@@ -1,4 +1,4 @@
-import { formatUnits, parseUnits, type Address, type Hash } from 'viem'
+import { parseUnits, type Hash } from 'viem'
 import type { TransactionRequest } from '../types.js'
 import { walletService } from './wallet.js'
 

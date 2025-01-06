@@ -1,7 +1,7 @@
 // lib/stores/payment.ts
 import { setContext, getContext } from 'svelte';
 import type { Address, Hash } from 'viem';
-import { transactionService } from '$lib/services/transations.js';
+import { transactionService } from '$lib/services/transactions.js';
 
 export interface PaymentState {
   to?: Address;
