@@ -26,13 +26,19 @@
 	}
   
 	onMount(() => {
-	  if (browser) {
-		void init();
-	  } else {
-		// Si on est pas dans le browser, on initialise quand même
-		isInitialized = true;
-	  }
-	});
+    if (browser) {
+      void init();
+      // Force l'initialisation après 5 secondes
+      setTimeout(() => {
+        if (!isInitialized) {
+          console.warn('Forced initialization after timeout');
+          isInitialized = true;
+        }
+      }, 5000);
+    } else {
+      isInitialized = true;
+    }
+  });
   </script>
   
   <!-- Supprimons la condition browser car elle est gérée dans onMount -->
