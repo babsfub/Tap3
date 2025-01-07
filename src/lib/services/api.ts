@@ -36,7 +36,7 @@ class ApiService {
 
     // Remplacer les URLs des images pour qu'elles pointent vers le bon chemin
     return css
-      .replace(/url\(['"]?\.\/bgs\//g, 'url("/images/bgs/')
+      .replace(/url\(['"]?\.\/bgs\//g, 'url(' + this.baseUrl + '/bgs/')
       .replace(/(['"])\)/g, '$1)')
       .replace(/contain/g, 'cover')
       .replace(/\s+/g, ' ')

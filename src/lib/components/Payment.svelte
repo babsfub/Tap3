@@ -22,7 +22,7 @@
 
   let isValidAddress = $derived(isAddress(address as Address));
   let isValidAmount = $derived(parseFloat(amount) > 0);
-  let canSubmit = $derived(isValidAddress && isValidAmount && !isLoading);
+  let canSubmit = $derived( isValidAmount && !isLoading);
 
   // Fonction pour démarrer le scan NFC
   async function startNFCScan() {

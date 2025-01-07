@@ -8,6 +8,7 @@
     onUnlock?: () => void;
     isLocked?: boolean;
   }>();
+  
 
   let cardStyle = $derived(() => {
     let style = '';

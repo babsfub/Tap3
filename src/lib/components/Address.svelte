@@ -13,20 +13,19 @@
     let copyTimeout: number;
   
     // Format address with or without prefix
-    let displayAddress = $derived(() => {
-      const addr = props.address.toLowerCase();
-      if (!props.showPrefix && addr.startsWith('0x')) {
-        return addr.slice(2);
-      }
-      return addr;
-    });
-  
-    
-    let shortAddress = $derived(() => {
-    const addr = displayAddress(); 
-    if (addr.length <= 10) return addr;
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-  });
+    let displayAddress = $derived<string>(() => {
+  const addr = props.address.toLowerCase();
+  if (!props.showPrefix && addr.startsWith('0x')) {
+    return addr.slice(2);
+  }
+  return addr;
+});
+
+let shortAddress = $derived<string>(() => {
+  const addr = displayAddress;
+  if (addr.length <= 10) return addr;
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+});
 
     async function copyToClipboard() {
       if (!browser || !props.copyable) return;
