@@ -1,18 +1,17 @@
-<!-- lib/components/CardDisplay.svelte -->
 <script lang="ts">
   import type { CardInfo } from '$lib/types.js';
+  import Address from './Address.svelte';
 
   let props = $props<{
     cardInfo: CardInfo;
     balance: string;
     onUnlock?: () => void;
+    isLocked?: boolean;
   }>();
 
-  // Calculer le style complet
   let cardStyle = $derived(() => {
     let style = '';
     
-    // Style de base selon le modèle
     if (props.cardInfo.model) {
       switch (props.cardInfo.model) {
         case 4:
@@ -29,37 +28,37 @@
       }
     }
     
-    // Ajouter le CSS personnalisé de la carte
     if (props.cardInfo.css) {
-      style += ` ${props.cardInfo.css}`;
+      style += props.cardInfo.css;
     }
 
     return style;
   });
 </script>
 
-
-
-<div class="w-full max-w-[428px] mx-auto"> <!-- Taille fixe basée sur le design original -->
+<div class="w-full max-w-[428px] mx-auto"> 
   <div 
     class="w-full relative shadow-xl rounded-lg overflow-hidden mb-6"
     style={cardStyle()}
   >
-    <!-- Container pour maintenir le ratio 854:545 -->
-    <div class="w-full relative" style="padding-top: 63.8%;"> <!-- (545/854)*100 -->
+    <div class="w-full relative" style="padding-top: 63.8%;"> 
       {#if props.cardInfo.svg}
-        <img 
-          src="/cards/{props.cardInfo.svg}.svg" 
-          alt="Card Design" 
-          class="absolute top-0 left-0 w-full h-full object-contain"
-        />
+        <div class="absolute inset-0">
+          {@html props.cardInfo.svg}
+        </div>
       {/if}
 
       <!-- Les éléments superposés -->
-      <div class="cardId">#{props.cardInfo.id.toString().padStart(4, '0')}</div>
+      <div class="cardId">
+        #{props.cardInfo.id.toString().padStart(4, '0')}
+      </div>
       
       <div class="cardAddr">
-        {props.cardInfo.pub.slice(0, 6)}...{props.cardInfo.pub.slice(-4)}
+        <Address 
+          address={props.cardInfo.pub} 
+          showFull={false} 
+          showPrefix={true}
+        />
       </div>
       
       <div class="nativeBalance">
@@ -67,7 +66,7 @@
         <div class="font-bold">{props.balance} MATIC</div>
       </div>
 
-      {#if !props.cardInfo.key && props.onUnlock}
+      {#if props.isLocked && props.onUnlock}
         <div class="absolute inset-0 flex items-center justify-center bg-black/30">
           <button
             onclick={props.onUnlock}

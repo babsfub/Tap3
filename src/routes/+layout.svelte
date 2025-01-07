@@ -41,7 +41,6 @@
   });
   </script>
   
-  <!-- Supprimons la condition browser car elle est gérée dans onMount -->
   {#if !isInitialized}
 	<div class="fixed inset-0 flex items-center justify-center">
 	  <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
