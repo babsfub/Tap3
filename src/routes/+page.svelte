@@ -14,6 +14,7 @@
     import PinModal from '$lib/components/modals/PinModal.svelte';
     import QrCode from '$lib/components/QRcode.svelte';
     import { apiService } from '$lib/services/api.js';
+    import NFCPromptModal from '$lib/components/modals/NFCPermission.svelte';
     import type { CardInfo } from '$lib/types.js';
     import type { Address } from 'viem';
   
@@ -31,9 +32,11 @@
   let showPinModal = $state(false);
   let showQRCode = $state(false);
   let balance = $state<string>('0');
+  let showNFCPrompt = $state(false);
 
   // Polling interval reference
   let balanceInterval: number;
+  let pendingPayment = $state(false);
 
   // Dans +page.svelte
 async function loadCard() {
@@ -115,6 +118,17 @@ async function loadCard() {
     }
   }
 
+  function handleCardDetected(detectedCard: CardInfo) {
+        showNFCPrompt = false;
+        cardInfo = detectedCard;
+        
+        
+        if (pendingPayment) {
+            showPaymentModal = true;
+            pendingPayment = false;
+        }
+    }
+
   async function handlePaymentSubmit(to: Address, amount: string) {
     if (!cardInfo) return;
 
@@ -153,6 +167,11 @@ async function loadCard() {
       error = 'Failed to copy address';
     }
   }
+
+  function initiatePayment() {
+        pendingPayment = true;
+        showNFCPrompt = true;
+    }
   
 
   onMount(() => {
@@ -216,6 +235,17 @@ async function loadCard() {
       {/if}
     </div>
   {/if}
+
+  {#if showNFCPrompt}
+    <NFCPromptModal
+        mode="read"
+        onCardDetected={handleCardDetected}
+        onClose={() => {
+            showNFCPrompt = false;
+            pendingPayment = false;
+        }}
+    />
+{/if}
   
   {#if showPaymentModal}
     <PaymentModal
