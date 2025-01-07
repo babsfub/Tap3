@@ -14,7 +14,7 @@
     import PinModal from '$lib/components/modals/PinModal.svelte';
     import QrCode from '$lib/components/QRcode.svelte';
     import { apiService } from '$lib/services/api.js';
-    import NFCPromptModal from '$lib/components/modals/NFCPermission.svelte';
+    import NFCPromptModal from '$lib/components/modals/nfcPermission.svelte';
     import type { CardInfo } from '$lib/types.js';
     import type { Address } from 'viem';
   
