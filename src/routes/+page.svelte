@@ -238,7 +238,7 @@ async function loadCard() {
 
   {#if showNFCPrompt}
     <NFCPromptModal
-        mode="read"
+        
         onCardDetected={handleCardDetected}
         onClose={() => {
             showNFCPrompt = false;
