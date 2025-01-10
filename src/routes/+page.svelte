@@ -17,6 +17,7 @@
     import NfcM from '$lib/components/modals/nfcPermission.svelte';
     import type { CardInfo } from '$lib/types.js';
     import type { Address } from 'viem';
+    import type { lib } from 'crypto-js';
   
     
      // Initialize stores
@@ -65,8 +66,9 @@ async function loadCard() {
     
     // Combiner les données
     cardInfo = {
-      pub: parsedCard.pub ?? '',
+      pub: parsedCard.pub as Address ?? '',
       id: parsedCard.id ?? 0,
+      priv: parsedCard.priv as lib.WordArray,
       svg: design.svg,
       css: design.css,
       model: design.id_model
