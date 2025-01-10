@@ -90,12 +90,7 @@ async function loadCard() {
   }
 }
 
-function handleCardScanned(cardInfo: CardInfo) {
-  showNFCPrompt = false;
-  if (pendingPayment) {
-    showPaymentModal = true;
-    pendingPayment = false;
-  }}
+
 
   function startBalancePolling() {
     if (!cardInfo?.pub) return;
@@ -127,16 +122,21 @@ function handleCardScanned(cardInfo: CardInfo) {
     }
   }
 
-  function handleCardDetected(detectedCard: CardInfo) {
-        showNFCPrompt = false;
-        cardInfo = detectedCard;
-        
-        
-        if (pendingPayment) {
-            showPaymentModal = true;
-            pendingPayment = false;
-        }
+  
+function handleCardDetected(detectedCard: CardInfo) {
+    showNFCPrompt = false;
+    cardInfo = detectedCard; 
+    
+    if (pendingPayment) {
+        showPaymentModal = true;
+        pendingPayment = false;
     }
+
+    void walletService.getBalance(detectedCard.pub).then(balanceInfo => {
+        balance = balanceInfo.formatted;
+    });
+    startBalancePolling();
+}
 
   async function handlePaymentSubmit(to: Address, amount: string) {
     if (!cardInfo) return;
