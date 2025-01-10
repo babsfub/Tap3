@@ -168,23 +168,27 @@ async function handlePaymentSubmit(to: Address, amount: string, pin: string) {
     }
   
 
-  onMount(() => {
-    void loadCard();
-    startBalancePolling();
+    onMount(() => {
+      void loadCard();
+      startBalancePolling();
 
-    // Gestion des changements d'URL
-    const handleHashChange = () => void loadCard();
-    window.addEventListener('hashchange', handleHashChange);
-    
-    return () => {
-      window.removeEventListener('hashchange', handleHashChange);
-      if (balanceInterval) {
-        clearInterval(balanceInterval);
-      }
-      void walletService.disconnect();
-    };
-  });
-    
+      // Gestion des changements d'URL sans recharger la page
+      const handleHashChange = (event: HashChangeEvent) => {
+        event.preventDefault(); // Empêcher le rechargement par défaut
+        void loadCard();
+      };
+
+      window.addEventListener('hashchange', handleHashChange);
+      
+      return () => {
+        window.removeEventListener('hashchange', handleHashChange);
+        if (balanceInterval) {
+          clearInterval(balanceInterval);
+        }
+        void walletService.disconnect();
+      };
+    });
+        
   </script>
   
   <svelte:head>

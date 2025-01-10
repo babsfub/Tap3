@@ -9,36 +9,46 @@
   
 	let { children } = $props();
 	let isInitialized = $state(false);
+	let stores = $state<ReturnType<typeof initStores> | null>(null);
+  
+	function initStores() {
+	  const history = initializeHistoryState();
+	  const payment = initializePaymentState();
+	  const preferences = initializePreferencesState();
+	  return { history, payment, preferences };
+	}
   
 	async function init() {
+	  if (!browser) {
+		isInitialized = true;
+		return;
+	  }
+  
 	  try {
-		await Promise.all([
-		  initializeHistoryState(),
-		  initializePaymentState(),
-		  initializePreferencesState()
-		]);
+		// Initialiser les stores une seule fois
+		if (!stores) {
+		  stores = initStores();
+		}
 		isInitialized = true;
 	  } catch (error) {
 		console.error('Initialization failed:', error);
-		// Même en cas d'erreur, on devrait continuer à afficher l'app
 		isInitialized = true;
 	  }
 	}
   
 	onMount(() => {
-    if (browser) {
-      void init();
-      // Force l'initialisation après 5 secondes
-      setTimeout(() => {
-        if (!isInitialized) {
-          console.warn('Forced initialization after timeout');
-          isInitialized = true;
-        }
-      }, 5000);
-    } else {
-      isInitialized = true;
-    }
-  });
+	  void init();
+	  
+	  // Fallback en cas de problème d'initialisation
+	  const timeout = setTimeout(() => {
+		if (!isInitialized) {
+		  console.warn('Forced initialization after timeout');
+		  isInitialized = true;
+		}
+	  }, 5000);
+  
+	  return () => clearTimeout(timeout);
+	});
   </script>
   
   {#if !isInitialized}
