@@ -20,12 +20,10 @@
     import type { lib } from 'crypto-js';
   
     
-     // Initialize stores
   const historyState = initializeHistoryState();
   const paymentState = initializePaymentState();
   const preferencesState = initializePreferencesState();
 
-  // Reactive state
   let cardInfo = $state<CardInfo | null>(null);
   let isLoading = $state(true);
   let error = $state<string | null>(null);
@@ -35,61 +33,53 @@
   let balance = $state<string>('0');
   let showNFCPrompt = $state(false);
 
-  // Polling interval reference
+ 
   let balanceInterval: number;
   let pendingPayment = $state(false);
 
-  // Dans +page.svelte
-async function loadCard() {
-  if (!browser) return;
   
-  try {
-    isLoading = true;
-    error = null;
-
-    const hash = window.location.hash;
-    if (!hash) {
-      throw new Error('No card data found');
-    }
-
-    // Parser les données de la carte depuis l'URL
-    const parsedCard = cryptoService.parseCardUrl(hash);
-    if (!parsedCard) {
-      throw new Error('Invalid card data');
-    }
-
-    // Récupérer le design et le style de la carte depuis l'API
-    if (parsedCard.id === undefined) {
-      throw new Error('Card ID is undefined');
-    }
-    const design = await apiService.getCardDesign(parsedCard.id);
+  async function loadCard(newCardInfo?: CardInfo) {
+    if (!browser && !newCardInfo) return;
     
-    // Combiner les données
-    cardInfo = {
-      pub: parsedCard.pub as Address ?? '',
-      id: parsedCard.id ?? 0,
-      priv: parsedCard.priv as lib.WordArray,
-      svg: design.svg,
-      css: design.css,
-      model: design.id_model
-    };
+    try {
+        isLoading = true;
+        error = null;
 
-    // Initialiser le wallet service
-    await walletService.initialize();
-    
-    // Charger le solde initial
-    if (!cardInfo) throw new Error('Card info is null');
-    const balanceInfo = await walletService.getBalance(cardInfo.pub);
-    balance = balanceInfo.formatted;
+        if (newCardInfo) {
+            cardInfo = newCardInfo;
+        } else {
+            const hash = window.location.hash;
+            if (!hash) {
+                throw new Error('No card data found');
+            }
 
-  } catch (err) {
-    console.error('Failed to load card:', err);
-    error = err instanceof Error ? err.message : 'Failed to load card';
-  } finally {
-    isLoading = false;
-  }
+            const parsedCard = cryptoService.parseCardUrl(hash);
+            if (!parsedCard || parsedCard.id === undefined) {
+                throw new Error('Invalid card data');
+            }
+
+            const design = await apiService.getCardDesign(parsedCard.id);
+            cardInfo = {
+                pub: parsedCard.pub as Address ?? '',
+                id: parsedCard.id,
+                priv: parsedCard.priv as lib.WordArray,
+                svg: design.svg,
+                css: design.css,
+                model: design.id_model
+            };
+        }
+
+        await walletService.initialize();
+        const balanceInfo = await walletService.getBalance(cardInfo!.pub);
+        balance = balanceInfo.formatted;
+
+    } catch (err) {
+        console.error('Failed to load card:', err);
+        error = err instanceof Error ? err.message : 'Failed to load card';
+    } finally {
+        isLoading = false;
+    }
 }
-
 
 
   function startBalancePolling() {
@@ -112,7 +102,7 @@ async function loadCard() {
       const success = await walletService.connectCard(cardInfo, pin);
       if (success) {
         showPinModal = false;
-        // Sauvegarder la dernière adresse utilisée
+        
         preferencesState.addRecentAddress(cardInfo.pub);
       } else {
         throw new Error('Invalid PIN');
@@ -172,9 +162,8 @@ async function handlePaymentSubmit(to: Address, amount: string, pin: string) {
       void loadCard();
       startBalancePolling();
 
-      // Gestion des changements d'URL sans recharger la page
       const handleHashChange = (event: HashChangeEvent) => {
-        event.preventDefault(); // Empêcher le rechargement par défaut
+        event.preventDefault(); 
         void loadCard();
       };
 
@@ -228,7 +217,6 @@ async function handlePaymentSubmit(to: Address, amount: string, pin: string) {
         isUnlocked={!!cardInfo?.key}
       />
   
-      <!-- Historique conditionné au déverrouillage -->
       {#if cardInfo?.key && historyState.getTransactionsByAddress(cardInfo.pub).length > 0}
         <TransactionHistory 
           transactions={historyState.getTransactionsByAddress(cardInfo.pub)} 
