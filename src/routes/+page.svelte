@@ -247,14 +247,13 @@ function handleCardDetected(detectedCard: CardInfo) {
 
   {#if showNFCPrompt}
     <NfcM
-        
         onCardDetected={handleCardDetected}
         onClose={() => {
             showNFCPrompt = false;
             pendingPayment = false;
         }}
     />
-{/if}
+  {/if}
   
   {#if showPaymentModal}
     <PaymentModal
