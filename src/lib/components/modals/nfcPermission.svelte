@@ -1,4 +1,3 @@
-
 <!-- lib/components/modals/nfcPermission.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -15,12 +14,14 @@
   }
 
   let { onCardDetected, onClose }: Props = $props();
-  let isWaitingForLink = $state(false);
+  let scanStatus = $state<'waiting' | 'scanning'>('waiting');
 
   async function handleHashChange() {
     if (!browser || !window.location.hash) return;
 
     try {
+      scanStatus = 'scanning';
+      
       const parsedCard = cryptoService.parseCardUrl(window.location.hash);
       if (!parsedCard?.id || !parsedCard.pub || !parsedCard.priv) {
         throw new Error('Invalid card data');
@@ -31,7 +32,6 @@
         apiService.getCardStyle(parsedCard.id)
       ]);
 
-      // S'assurer que toutes les propriétés requises sont présentes
       const cardInfo: CardInfo = {
         id: parsedCard.id,
         pub: parsedCard.pub as Address,
@@ -47,20 +47,18 @@
       );
 
       if (isValid) {
-        isWaitingForLink = false;
         onCardDetected(cardInfo);
         onClose();
       }
     } catch (error) {
       console.error('Failed to process card data:', error);
+      scanStatus = 'waiting';
     }
   }
 
   onMount(() => {
-    isWaitingForLink = true;
     window.addEventListener('hashchange', handleHashChange);
     
-    // Vérifier le hash initial si présent
     if (window.location.hash) {
       void handleHashChange();
     }
@@ -71,9 +69,6 @@
   });
 </script>
 
-
-
-
 <div 
   class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
   role="dialog"
@@ -83,7 +78,7 @@
     <div class="p-4 border-b border-gray-200 dark:border-gray-700">
       <div class="flex justify-between items-center">
         <h2 class="text-xl font-bold dark:text-white">
-          Scan Card
+          {scanStatus === 'scanning' ? 'Processing Card' : 'Scan Card'}
         </h2>
         <button
           onclick={onClose}
@@ -98,21 +93,29 @@
 
     <div class="p-6">
       <div class="text-center space-y-6">
-        <p class="text-gray-600 dark:text-gray-300">
-          Please scan your card with an NFC reader and use the provided link.
-        </p>
-        
-        <div class="w-32 h-32 mx-auto">
-          <img 
-            src="/images/scan-card.svg" 
-            alt="Scan card illustration"
-            class="w-full h-full"
-          />
-        </div>
+        {#if scanStatus === 'scanning'}
+          <div class="w-12 h-12 mx-auto border-4 border-blue-500 border-t-transparent 
+                    rounded-full animate-spin"></div>
+          <p class="text-gray-600 dark:text-gray-300">
+            Processing card data...
+          </p>
+        {:else}
+          <p class="text-gray-600 dark:text-gray-300">
+            Please scan your card with an NFC reader and use the provided link.
+          </p>
+          
+          <div class="w-32 h-32 mx-auto">
+            <img 
+              src="/images/scan-card.svg" 
+              alt="Scan card illustration"
+              class="w-full h-full"
+            />
+          </div>
 
-        <p class="text-sm text-gray-500 dark:text-gray-400">
-          The browser window will automatically update once the card is scanned.
-        </p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">
+            The browser window will automatically update once the card is scanned.
+          </p>
+        {/if}
       </div>
     </div>
 
