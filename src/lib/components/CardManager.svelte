@@ -158,9 +158,9 @@
 {#if showPaymentModal && currentCard}
   <PaymentModal
     onClose={() => showPaymentModal = false}
-    onSubmit={async (amount) => {
+    onSubmit={async (amount: number) => {
       try {
-        await paymentState.sendTransaction(currentCard.pub, amount);
+        await paymentState.sendTransaction(currentCard.pub, amount.toString(), pin);
         handleSuccess();
       } catch (err) {
         handleError(err instanceof Error ? err.message : 'Payment failed');

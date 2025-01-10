@@ -122,10 +122,9 @@ async function loadCard() {
     }
   }
 
-  
-function handleCardDetected(detectedCard: CardInfo) {
+  function handleCardDetected(detectedCard: CardInfo) {
     showNFCPrompt = false;
-    cardInfo = detectedCard; 
+    cardInfo = detectedCard;
     
     if (pendingPayment) {
         showPaymentModal = true;
@@ -138,36 +137,22 @@ function handleCardDetected(detectedCard: CardInfo) {
     startBalancePolling();
 }
 
-  async function handlePaymentSubmit(to: Address, amount: string) {
-    if (!cardInfo) return;
 
+async function handlePaymentSubmit(to: Address, amount: string, pin: string) {
     try {
-      const tx = await walletService.sendTransaction({
-        to,
-        value: amount
-      });
-
-      historyState.addTransaction({
-        hash: tx.hash,
-        timestamp: Date.now(),
-        from: cardInfo.pub,
-        to,
-        amount,
-        status: 'pending'
-      });
-      
-      showPaymentModal = false;
-    } catch (err) {
-      throw err;
+        await paymentState.sendTransaction(to, amount, pin);
+        showPaymentModal = false;
+    } catch (error) {
+        
+        console.error('Payment failed:', error);
     }
-  }
+}
 
   async function copyAddress() {
     if (!cardInfo?.pub) return;
     
     try {
       await navigator.clipboard.writeText(cardInfo.pub);
-      // Feedback visuel temporaire
       document.body.style.backgroundColor = 'green';
       setTimeout(() => {
         document.body.style.backgroundColor = '';
@@ -223,7 +208,6 @@ function handleCardDetected(detectedCard: CardInfo) {
   
   {#if cardInfo && !isLoading}
     <div class="container mx-auto px-4 max-w-lg">
-
       <CardDisplay 
         {cardInfo} 
         {balance} 
@@ -231,30 +215,34 @@ function handleCardDetected(detectedCard: CardInfo) {
       />
       
       <CardActions 
-          onUnlock={() => showPinModal = true}
-          onSend={initiatePayment} 
-          onShowQR={() => showQRCode = true}
-          onCopy={copyAddress}
-          address={cardInfo?.pub} 
-        />
+        onUnlock={() => showPinModal = true}
+        onSend={initiatePayment} 
+        onShowQR={() => showQRCode = true}
+        onCopy={copyAddress}
+        onBuyCrypto={() => {/* TODO */}}
+        address={cardInfo?.pub}
+        isUnlocked={!!cardInfo?.key}
+      />
   
-      {#if historyState.getTransactionsByAddress(cardInfo.pub).length > 0}
+      <!-- Historique conditionné au déverrouillage -->
+      {#if cardInfo?.key && historyState.getTransactionsByAddress(cardInfo.pub).length > 0}
         <TransactionHistory 
           transactions={historyState.getTransactionsByAddress(cardInfo.pub)} 
         />
       {/if}
     </div>
   {/if}
-
+  
+  <!-- Modaux -->
   {#if showNFCPrompt}
-  <NfcM
-    onCardDetected={handleCardDetected}
-    onClose={() => {
-      showNFCPrompt = false;
-      pendingPayment = false;
-    }}
-  />
-{/if}
+    <NfcM
+      onCardDetected={handleCardDetected}
+      onClose={() => {
+        showNFCPrompt = false;
+        pendingPayment = false;
+      }}
+    />
+  {/if}
   
   {#if showPaymentModal}
     <PaymentModal
@@ -270,11 +258,9 @@ function handleCardDetected(detectedCard: CardInfo) {
     />
   {/if}
   
-  {#if showQRCode}
-    {#if cardInfo?.pub}
-      <QrCode
-        address={cardInfo.pub}
-        onClose={() => showQRCode = false}
-      />
-    {/if}
+  {#if showQRCode && cardInfo?.pub}
+    <QrCode
+      address={cardInfo.pub}
+      onClose={() => showQRCode = false}
+    />
   {/if}

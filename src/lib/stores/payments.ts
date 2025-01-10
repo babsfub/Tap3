@@ -11,18 +11,13 @@ export interface PaymentState {
   hash?: Hash;
 }
 
-export function createPaymentState(initialState: PaymentState = {
-  status: 'idle',
-  error: null
-}) {
+export function createPaymentState(initialState: PaymentState = { status: 'idle', error: null }) {
   let state = (initialState);
   
   return {
-    // Fonction pour accéder à l'état
     getState: () => state,
     
-    // Actions
-    async sendTransaction(to: Address, amount: string) {
+    async sendTransaction(to: Address, amount: string, pin: string) {
       state.to = to;
       state.amount = amount;
       state.status = 'loading';
@@ -32,13 +27,12 @@ export function createPaymentState(initialState: PaymentState = {
       try {
         const hash = await transactionService.sendTransaction({
           to,
-          value: amount
+          value: amount,
+          pin 
         });
 
         state.status = 'success';
         state.hash = hash;
-
-        // Démarrer la surveillance
         this.watchTransactionStatus(hash);
         return hash;
       } catch (err) {

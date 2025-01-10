@@ -17,6 +17,7 @@ export interface TransactionRequest {
   gasPrice?: string
   gasLimit?: string
   data?: string
+  pin?: string
 }
 
 export interface TransactionRecord {
