@@ -14,7 +14,7 @@
     import PinModal from '$lib/components/modals/PinModal.svelte';
     import QrCode from '$lib/components/QRcode.svelte';
     import { apiService } from '$lib/services/api.js';
-    import NFCPromptModal from '$lib/components/modals/nfcPermission.svelte';
+    import NfcM from '$lib/components/modals/nfcPermission.svelte';
     import type { CardInfo } from '$lib/types.js';
     import type { Address } from 'viem';
   
@@ -87,6 +87,13 @@ async function loadCard() {
     isLoading = false;
   }
 }
+
+function handleCardScanned(cardInfo: CardInfo) {
+  showNFCPrompt = false;
+  if (pendingPayment) {
+    showPaymentModal = true;
+    pendingPayment = false;
+  }}
 
   function startBalancePolling() {
     if (!cardInfo?.pub) return;
@@ -237,7 +244,7 @@ async function loadCard() {
   {/if}
 
   {#if showNFCPrompt}
-    <NFCPromptModal
+    <NfcM
         
         onCardDetected={handleCardDetected}
         onClose={() => {

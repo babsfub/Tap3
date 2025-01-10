@@ -1,117 +1,142 @@
-<!-- lib/components/NFCWriter.svelte -->
+<!-- lib/components/modals/NFCWriteModal.svelte -->
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { nfcService } from '$lib/services/nfc.js';
-  import PinModal from './modals/PinModal.svelte';
   import type { CardInfo } from '$lib/types.js';
 
-  let props = $props<{
+  interface Props {
     cardInfo: CardInfo;
-    onError?: (error: string) => void;
-    onSuccess?: () => void;
-  }>();
-
-  let isSupported = $state(false);
-  let isWriting = $state(false);
-  let showPinModal = $state(false);
+    pin: string;
+    onSuccess: () => void;
+    onError: (error: string) => void;
+    onClose: () => void;
+  }
+  let props = $props();
+  
+  let nfcStatus = $state<'checking' | 'ready' | 'writing' | 'error'>('checking');
   let error = $state<string | null>(null);
-  let status = $state<string>('');
 
-  onMount(async () => {
+  async function checkNFCPermission() {
+    if (!browser) return;
+
     try {
-      isSupported = await nfcService.isSupported();
-      if (!isSupported) {
+      const supported = await nfcService.isSupported();
+      if (!supported) {
         throw new Error('NFC is not supported on this device');
       }
-    } catch (err) {
-      handleError(err instanceof Error ? err.message : 'Failed to initialize NFC');
-    }
-  });
 
-  function handleError(message: string) {
-    error = message;
-    if (props.onError) {
-      props.onError(message);
-    }
-  }
-
-  async function handlePinSubmit(pin: string) {
-    try {
-      isWriting = true;
-      error = null;
-      status = 'Writing to card...';
-
-      await nfcService.writeCard(props.cardInfo, {
-        privateKey: props.cardInfo.priv.toString(),
-        pin
-      });
-
-      status = 'Card written successfully';
-      showPinModal = false;
-
-      if (props.onSuccess) {
-        props.onSuccess();
+      const permission = await nfcService.requestPermission();
+      if (permission !== 'granted') {
+        throw new Error('NFC permission denied');
       }
 
+      nfcStatus = 'ready';
     } catch (err) {
-      handleError(err instanceof Error ? err.message : 'Failed to write card');
-    } finally {
-      isWriting = false;
+      error = err instanceof Error ? err.message : 'Failed to initialize NFC';
+      nfcStatus = 'error';
+      props.onError(error);
     }
   }
 
-  function startWriting() {
-    error = null;
-    showPinModal = true;
+  async function writeToCard() {
+    try {
+      nfcStatus = 'writing';
+      await nfcService.writeCard(props.cardInfo, {
+        pin: props.pin,
+        privateKey: props.cardInfo.key || ''
+      });
+      props.onSuccess();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to write to card';
+      nfcStatus = 'error';
+      props.onError(error);
+    }
   }
+
+  onMount(() => {
+    void checkNFCPermission();
+  });
 </script>
 
-<div class="w-full max-w-md mx-auto p-4">
-  {#if error}
-    <div class="mb-4 p-3 bg-red-100 text-red-700 rounded-lg" role="alert">
-      {error}
+<div 
+  class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+  role="dialog"
+  aria-modal="true"
+>
+  <div class="max-w-md w-full mx-4 bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+    <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+      <div class="flex justify-between items-center">
+        <h2 class="text-xl font-bold dark:text-white">
+          Write to Card
+        </h2>
+        <button
+          onclick={props.onClose}
+          class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300
+                 transition-colors"
+          aria-label="Close"
+        >
+          <span class="text-2xl">×</span>
+        </button>
+      </div>
     </div>
-  {/if}
 
-  {#if !isSupported}
-    <div class="mb-4 p-3 bg-yellow-100 text-yellow-700 rounded-lg">
-      NFC is not supported on your device
-    </div>
-  {:else}
-    <div class="space-y-4">
-      <button
-        class="w-full py-3 px-4 bg-green-500 text-white rounded-lg
-               hover:bg-green-600 transition-colors disabled:opacity-50"
-        disabled={isWriting}
-        onclick={startWriting}
-      >
-        {isWriting ? 'Writing...' : 'Write to Card'}
-      </button>
-
-      {#if status}
-        <div class="text-center {isWriting ? 'animate-pulse' : ''}">
-          {status}
+    <div class="p-6">
+      {#if error}
+        <div 
+          class="mb-4 p-3 rounded bg-red-100 border border-red-400 text-red-700
+                 dark:bg-red-900/50 dark:border-red-800 dark:text-red-100"
+          role="alert"
+        >
+          {error}
         </div>
       {/if}
 
-      {#if isWriting}
-        <div class="flex justify-center mt-4">
-          <div class="w-16 h-16 rounded-full border-4 border-green-500 
-                    border-t-transparent animate-spin">
+      <div class="text-center space-y-6">
+        {#if nfcStatus === 'checking'}
+          <div class="w-12 h-12 mx-auto border-4 border-blue-500 border-t-transparent 
+                    rounded-full animate-spin" ></div>
+          <p class="text-gray-600 dark:text-gray-300">
+            Checking NFC capabilities...
+          </p>
+
+        {:else if nfcStatus === 'ready'}
+          <p class="text-gray-600 dark:text-gray-300">
+            Ready to write. Tap to start writing to card.
+          </p>
+          <button
+            onclick={() => void writeToCard()}
+            class="px-4 py-2 bg-blue-500 text-white rounded-lg
+                   hover:bg-blue-600 transition-colors"
+          >
+            Start Writing
+          </button>
+
+        {:else if nfcStatus === 'writing'}
+          <div class="w-32 h-32 mx-auto">
+            <img 
+              src="/images/nfc-write-animation.svg" 
+              alt="Writing to card"
+              class="w-full h-full"
+            />
           </div>
-        </div>
-        <p class="text-center mt-2 text-gray-600">
-          Hold your card against the device
-        </p>
-      {/if}
+          <p class="text-gray-600 dark:text-gray-300">
+            Hold your device near the card until the process is complete...
+          </p>
+        {/if}
+      </div>
     </div>
-  {/if}
-</div>
 
-{#if showPinModal}
-  <PinModal
-    onSubmit={handlePinSubmit}
-    onClose={() => showPinModal = false}
-    title="Enter Card PIN"
-  />
-{/if}
+    <div class="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+      <button
+        type="button"
+        onclick={props.onClose}
+        class="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg
+               hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
+               dark:hover:bg-gray-600 transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+</div>
