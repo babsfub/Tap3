@@ -2,11 +2,15 @@
 import type { CardDesign } from '$lib/types.js';
 
 class ApiService {
-  private baseUrl: string = 'https://api.tap3.me/';
+  private baseUrl: string = 'https://api.tap3.me';
+
+  private getEndpoint(path: string): string {
+    return `${this.baseUrl}/${path.replace(/^\//, '')}`;
+  }
 
   async getCardDesign(cardId: number): Promise<CardDesign> {
     try {
-      const response = await fetch(`${this.baseUrl}catalogue/${cardId}`);
+      const response = await fetch(this.getEndpoint(`catalogue/${cardId}`));
       
       if (!response.ok) {
         throw new Error('Failed to fetch card design');
@@ -17,7 +21,6 @@ class ApiService {
         throw new Error('No design found for card');
       }
 
-      // Traiter le CSS pour corriger les URLs des images
       const design: CardDesign = {
         id_model: data[0].id_model,
         css: this.processCardCSS(data[0].css),
@@ -34,9 +37,11 @@ class ApiService {
   private processCardCSS(css: string): string {
     if (!css) return '';
 
-    // Remplacer les URLs des images pour qu'elles pointent vers le bon chemin
     return css
-      .replace(/url\(['"]?\.\/bgs\//g, 'url(' + this.baseUrl + '/bgs/')
+      .replace(
+        /url\(['"]?(?:\.\/)?bgs\//g, 
+        `url('${this.baseUrl}/bgs/`
+      )
       .replace(/(['"])\)/g, '$1)')
       .replace(/contain/g, 'cover')
       .replace(/\s+/g, ' ')
@@ -45,7 +50,7 @@ class ApiService {
 
   async verifyCard(cardId: number, cardUrl: string): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}verify`, {
+      const response = await fetch(this.getEndpoint('verify'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -70,7 +75,7 @@ class ApiService {
 
   async getMaticPrice(): Promise<number> {
     try {
-      const response = await fetch(`${this.baseUrl}price/MATIC`);
+      const response = await fetch(this.getEndpoint('price/MATIC'));
       if (!response.ok) {
         throw new Error('Failed to fetch MATIC price');
       }
@@ -85,7 +90,7 @@ class ApiService {
 
   async registerDevice(deviceToken: string, cardId: number): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}register/device`, {
+      const response = await fetch(this.getEndpoint('register/device'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -108,10 +113,9 @@ class ApiService {
     }
   }
 
-  // Récupère le CSS pour l'affichage de la carte
   async getCardStyle(cardId: number): Promise<{css: string, model: number}> {
     try {
-      const response = await fetch(`${this.baseUrl}style/${cardId}`);
+      const response = await fetch(this.getEndpoint(`style/${cardId}`));
       if (!response.ok) {
         throw new Error('Failed to fetch card style');
       }
@@ -128,7 +132,6 @@ class ApiService {
   }
 
   private processCardStyle(css: string, model: number): string {
-    // Traitement du style en fonction du modèle
     let baseStyle = 'background-color: ';
     
     switch (model) {
@@ -149,7 +152,6 @@ class ApiService {
     return baseStyle + css;
   }
 
-  // Récupère l'historique des transactions d'une carte
   async getCardHistory(cardAddress: string): Promise<Array<{
     hash: string,
     date: string,
@@ -159,7 +161,7 @@ class ApiService {
     to: string
   }>> {
     try {
-      const response = await fetch(`${this.baseUrl}history/${cardAddress}`);
+      const response = await fetch(this.getEndpoint(`history/${cardAddress}`));
       if (!response.ok) {
         throw new Error('Failed to fetch card history');
       }
@@ -169,6 +171,17 @@ class ApiService {
     } catch (error) {
       console.error('Failed to get card history:', error);
       return [];
+    }
+  }
+
+  // Nouvelle méthode pour tester l'API
+  async testConnection(): Promise<boolean> {
+    try {
+      const response = await fetch(this.getEndpoint('health'));
+      return response.ok;
+    } catch (error) {
+      console.error('API connection test failed:', error);
+      return false;
     }
   }
 }

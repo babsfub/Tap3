@@ -231,11 +231,12 @@ function handleCardDetected(detectedCard: CardInfo) {
       />
       
       <CardActions 
-        onUnlock={() => showPinModal = true}
-        onSend={() => showPaymentModal = true}
-        onShowQR={() => showQRCode = true}
-        onCopy={copyAddress}
-      />
+          onUnlock={() => showPinModal = true}
+          onSend={initiatePayment} 
+          onShowQR={() => showQRCode = true}
+          onCopy={copyAddress}
+          address={cardInfo?.pub} 
+        />
   
       {#if historyState.getTransactionsByAddress(cardInfo.pub).length > 0}
         <TransactionHistory 
@@ -246,14 +247,14 @@ function handleCardDetected(detectedCard: CardInfo) {
   {/if}
 
   {#if showNFCPrompt}
-    <NfcM
-        onCardDetected={handleCardDetected}
-        onClose={() => {
-            showNFCPrompt = false;
-            pendingPayment = false;
-        }}
-    />
-  {/if}
+  <NfcM
+    onCardDetected={handleCardDetected}
+    onClose={() => {
+      showNFCPrompt = false;
+      pendingPayment = false;
+    }}
+  />
+{/if}
   
   {#if showPaymentModal}
     <PaymentModal
