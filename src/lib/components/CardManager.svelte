@@ -5,7 +5,7 @@
   import NFCReader from './NFCReader.svelte';
   import NFCWriter from './NFCWriter.svelte';
   import PaymentModal from './Payment.svelte';
-
+  import PinModal from './modals/PinModal.svelte';
   import type { CardInfo } from '$lib/types.js';
 
   const cardState = useCardState();
@@ -13,7 +13,9 @@
 
   let mode = $state<'read' | 'write' | 'payment' | 'verify' | 'setup'>('read');
   let showPaymentModal = $state(false);
+  let showPinModal = $state(false);
   let error = $state<string | null>(null);
+  let pin = $state('');
 
   // États dérivés du cardState
   let currentCard = $derived(cardState.getState().currentCard);
@@ -27,12 +29,21 @@
     }
   }
 
+  async function handlePinSubmit(password: string): Promise<void> {
+    pin = password;
+    showPinModal = false;
+    if (mode === 'write') {
+      // Continue with writing process
+    }
+  }
+
   function handleError(errorMessage: string) {
     error = errorMessage;
   }
 
   function handleSuccess() {
     error = null;
+    pin = ''; // Reset PIN after successful operation
     if (mode === 'payment') {
       showPaymentModal = false;
     }
@@ -40,6 +51,9 @@
 
   function switchMode(newMode: typeof mode) {
     error = null;
+    if (newMode === 'write') {
+      showPinModal = true; // Demande du PIN avant l'écriture
+    }
     mode = newMode;
   }
 </script>
@@ -110,22 +124,37 @@
 
   <!-- NFC Components -->
   {#if mode === 'read' || mode === 'payment'}
-    <NFCReader
-      {mode}
-      onRead={handleCardRead}
-      onError={handleError}
-      onSuccess={handleSuccess}
-    />
-  {:else if mode === 'write' && currentCard}
-    <NFCWriter
-      cardInfo={currentCard}
-      onError={handleError}
-      onSuccess={handleSuccess}
-    />
-  {/if}
-</div>
+  <NFCReader
+    {mode}
+    onRead={handleCardRead}
+    onError={handleError}
+    onSuccess={handleSuccess}
+  />
+{:else if mode === 'write' && currentCard && pin}
+  <NFCWriter
+    cardInfo={currentCard}
+    {pin}
+    onClose={() => {
+      pin = '';
+      mode = 'read';
+    }}
+    onError={handleError}
+    onSuccess={handleSuccess}
+  />
+{/if}
 
 <!-- Modals -->
+{#if showPinModal}
+  <PinModal
+    title="Enter Card Password"
+    onSubmit={handlePinSubmit}
+    onClose={() => {
+      showPinModal = false;
+      mode = 'read';
+    }}
+  />
+{/if}
+
 {#if showPaymentModal && currentCard}
   <PaymentModal
     onClose={() => showPaymentModal = false}
@@ -139,3 +168,4 @@
     }}
   />
 {/if}
+</div>
