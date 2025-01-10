@@ -1,33 +1,78 @@
-<!-- lib/components/modals/NFCPromptModal.svelte -->
+
+<!-- lib/components/modals/nfcPermission.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
+  import { cryptoService } from '$lib/services/crypto.js';
+  import { apiService } from '$lib/services/api.js';
   import type { CardInfo } from '$lib/types.js';
+  import type { Address } from 'viem';
+  import type { lib } from 'crypto-js';
 
   interface Props {
     onCardDetected: (cardInfo: CardInfo) => void;
     onClose: () => void;
   }
 
-  let { onCardDetected, onClose } = $props<{ onCardDetected: (cardInfo: CardInfo) => void; onClose: () => void }>();
+  let { onCardDetected, onClose }: Props = $props();
   let isWaitingForLink = $state(false);
 
-  function handleHashChange() {
-    // Vérifier si un nouveau hash est présent, indiquant qu'une carte a été scannée
-    if (browser && window.location.hash) {
-      isWaitingForLink = false;
-      onClose();
+  async function handleHashChange() {
+    if (!browser || !window.location.hash) return;
+
+    try {
+      const parsedCard = cryptoService.parseCardUrl(window.location.hash);
+      if (!parsedCard?.id || !parsedCard.pub || !parsedCard.priv) {
+        throw new Error('Invalid card data');
+      }
+
+      const [design, style] = await Promise.all([
+        apiService.getCardDesign(parsedCard.id),
+        apiService.getCardStyle(parsedCard.id)
+      ]);
+
+      // S'assurer que toutes les propriétés requises sont présentes
+      const cardInfo: CardInfo = {
+        id: parsedCard.id,
+        pub: parsedCard.pub as Address,
+        priv: parsedCard.priv as lib.WordArray,
+        css: style.css,
+        model: style.model,
+        svg: design.svg
+      };
+
+      const isValid = await apiService.verifyCard(
+        cardInfo.id,
+        cryptoService.generateCardUrl(cardInfo)
+      );
+
+      if (isValid) {
+        isWaitingForLink = false;
+        onCardDetected(cardInfo);
+        onClose();
+      }
+    } catch (error) {
+      console.error('Failed to process card data:', error);
     }
   }
 
   onMount(() => {
     isWaitingForLink = true;
     window.addEventListener('hashchange', handleHashChange);
+    
+    // Vérifier le hash initial si présent
+    if (window.location.hash) {
+      void handleHashChange();
+    }
+    
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
     };
   });
 </script>
+
+
+
 
 <div 
   class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"

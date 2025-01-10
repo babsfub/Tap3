@@ -12,7 +12,9 @@
     onError: (error: string) => void;
     onClose: () => void;
   }
-  let props = $props();
+
+  // Une seule déclaration des props avec typage
+  let { cardInfo, pin, onSuccess, onError, onClose }: Props = $props();
   
   let nfcStatus = $state<'checking' | 'ready' | 'writing' | 'error'>('checking');
   let error = $state<string | null>(null);
@@ -35,22 +37,22 @@
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to initialize NFC';
       nfcStatus = 'error';
-      props.onError(error);
+      onError(error); // Utilisation directe de onError déstructuré
     }
   }
 
   async function writeToCard() {
     try {
       nfcStatus = 'writing';
-      await nfcService.writeCard(props.cardInfo, {
-        pin: props.pin,
-        privateKey: props.cardInfo.key || ''
+      await nfcService.writeCard(cardInfo, {  // Utilisation directe de cardInfo
+        pin,  // Utilisation directe de pin
+        privateKey: cardInfo.key || ''
       });
-      props.onSuccess();
+      onSuccess();  // Utilisation directe de onSuccess
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to write to card';
       nfcStatus = 'error';
-      props.onError(error);
+      onError(error);
     }
   }
 
@@ -71,7 +73,7 @@
           Write to Card
         </h2>
         <button
-          onclick={props.onClose}
+          onclick={onClose}
           class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300
                  transition-colors"
           aria-label="Close"
@@ -130,7 +132,7 @@
     <div class="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
       <button
         type="button"
-        onclick={props.onClose}
+        onclick={onClose}
         class="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg
                hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
                dark:hover:bg-gray-600 transition-colors"
