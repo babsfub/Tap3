@@ -5,7 +5,6 @@
   let props = $props<{
     onSubmit: (password: string) => Promise<void>;
     onClose: () => void;
-    remainingAttempts?: number;
     title?: string;
   }>();
 
@@ -17,10 +16,7 @@
   // Utilisation de validatePassword
   let isValidInput = $derived(cryptoService.validatePassword(password));
   
-  let attemptsText = $derived(() => {
-    if (!props.remainingAttempts) return '';
-    return `${props.remainingAttempts} attempts remaining`;
-  });
+  
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
@@ -113,17 +109,10 @@
           autocomplete="current-password"
           disabled={isLoading}
           aria-invalid={password && !isValidInput ? 'true' : undefined}
-          aria-describedby={attemptsText() ? 'attempts-text' : undefined}
+          
         />
 
-        {#if attemptsText}
-          <p 
-            id="attempts-text"
-            class="mt-2 text-sm text-gray-600 dark:text-gray-400"
-          >
-            {attemptsText}
-          </p>
-        {/if}
+       
       </div>
 
       <div class="flex justify-end space-x-3 pt-4">
