@@ -138,7 +138,6 @@ class NFCService {
         priv: CryptoJS.enc.Base64.parse(encryptedKey)
       });
 
-      // Création du message NDEF
       const messageInit: NDEFMessageInit = {
         records: [{
           recordType: 'url',
@@ -147,7 +146,7 @@ class NFCService {
         }]
       };
 
-      // Écriture NFC
+      
       const writer = new NDEFReader();
       await writer.write(messageInit, {
         overwrite: true
