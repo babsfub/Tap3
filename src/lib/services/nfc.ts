@@ -160,15 +160,16 @@ class NFCService {
 
   async stopReading(): Promise<void> {
     this.cleanupReader();
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
-
+  
   private cleanupReader(): void {
     if (this.abortController) {
       this.abortController.abort();
+      this.abortController = null;
     }
     this.isReading = false;
     this.reader = null;
-    this.abortController = null;
   }
 
   private async decodeMessage(message: NDEFMessage): Promise<string | null> {
