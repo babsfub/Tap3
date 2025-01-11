@@ -1,5 +1,5 @@
 // lib/stores/card.ts
-import { setContext, getContext } from 'svelte';
+import { setContext, getContext, type Snippet } from 'svelte';
 import { formatUnits } from 'viem';
 import type { CardInfo } from '$lib/types.js';
 import { walletService } from '$lib/services/wallet.js';
@@ -11,26 +11,17 @@ interface CardState {
 }
 
 function createCardState(initialState: Partial<CardState> = {}) {
-  // État initial
-  let state = <CardState>({
+  const state = {
     currentCard: null,
     balance: 0n,
     isLocked: true,
     ...initialState
-  });
+  };
 
-  // Dérivations
-  let formattedBalance = (state.balance 
-    ? formatUnits(state.balance, 18) 
-    : '0'
-  );
-
-  // Effets
-  (() => {
-    if (state.currentCard?.pub) {
-      void updateBalance();
-    }
-  });
+  // Accesseurs
+  let formattedBalance = () => {
+    return state.balance ? formatUnits(state.balance, 18) : '0';
+  };
 
   // Actions et méthodes
   async function updateBalance() {
@@ -47,6 +38,7 @@ function createCardState(initialState: Partial<CardState> = {}) {
   function setCard(cardInfo: CardInfo) {
     state.currentCard = cardInfo;
     state.isLocked = true;
+    void updateBalance();
   }
 
   function unlockCard() {
@@ -76,16 +68,9 @@ function createCardState(initialState: Partial<CardState> = {}) {
     return state;
   }
 
-  function getFormattedBalance() {
-    return formattedBalance;
-  }
-
   return {
-    // Accesseurs
     getState,
-    getFormattedBalance,
-
-    // Actions
+    getFormattedBalance: () => formattedBalance(),
     setCard,
     unlockCard,
     lockCard,
@@ -96,32 +81,20 @@ function createCardState(initialState: Partial<CardState> = {}) {
 }
 
 // Clé pour le context
-const CARD_STATE_KEY = 'cardState';
+const CARD_STATE_KEY = Symbol('cardState');
 
 // Fonction d'initialisation
 export function initializeCardState(initialData?: Partial<CardState>) {
   const cardState = createCardState(initialData);
-  setContext(CARD_STATE_KEY, () => cardState);
+  setContext(CARD_STATE_KEY, cardState);
   return cardState;
 }
 
 // Hook pour utiliser le store
 export function useCardState() {
-  const cardState = getContext<() => ReturnType<typeof createCardState>>(CARD_STATE_KEY);
-  if (!cardState) {
+  const state = getContext<ReturnType<typeof createCardState>>(CARD_STATE_KEY);
+  if (!state) {
     throw new Error('Card state not initialized. Call initializeCardState first.');
   }
-  return cardState();
+  return state;
 }
-
-// Fonction pour la gestion du snapshot
-export const snapshot = {
-  capture: () => {
-    const cardState = useCardState();
-    return cardState.getState();
-  },
-  restore: (data: CardState) => {
-    const cardState = createCardState(data);
-    setContext(CARD_STATE_KEY, () => cardState);
-  }
-};

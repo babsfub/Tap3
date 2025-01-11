@@ -11,19 +11,19 @@
   const cardState = useCardState();
   const paymentState = usePaymentState();
 
+  let currentCard = $derived(cardState.getState().currentCard);
+  let isCardLocked = $derived(cardState.getState().isLocked);
+  let formattedBalance = $derived(cardState.getFormattedBalance());
+
   let mode = $state<'read' | 'write' | 'payment' | 'verify' | 'setup'>('read');
   let showPaymentModal = $state(false);
   let showPinModal = $state(false);
   let error = $state<string | null>(null);
   let pin = $state('');
 
-  // États dérivés du cardState
-  let currentCard = $derived(cardState.getState().currentCard);
-  let balance = $derived(cardState.getFormattedBalance());
-  let isCardLoaded = $derived(!!currentCard);
-
   function handleCardRead(cardInfo: CardInfo) {
     error = null;
+    cardState.setCard(cardInfo);
     if (mode === 'payment' && cardInfo) {
       showPaymentModal = true;
     }
@@ -32,9 +32,7 @@
   async function handlePinSubmit(password: string): Promise<void> {
     pin = password;
     showPinModal = false;
-    if (mode === 'write') {
-      // Continue with writing process
-    }
+    cardState.unlockCard();
   }
 
   function handleError(errorMessage: string) {
@@ -43,7 +41,7 @@
 
   function handleSuccess() {
     error = null;
-    pin = ''; // Reset PIN after successful operation
+    pin = '';
     if (mode === 'payment') {
       showPaymentModal = false;
     }
@@ -51,15 +49,15 @@
 
   function switchMode(newMode: typeof mode) {
     error = null;
-    if (newMode === 'write') {
-      showPinModal = true; // Demande du PIN avant l'écriture
+    if (newMode === 'write' && currentCard) {
+      showPinModal = true;
     }
     mode = newMode;
   }
 </script>
 
+
 <div class="container mx-auto px-4 py-8 max-w-2xl">
-  <!-- Mode Selection -->
   <div class="flex justify-center space-x-4 mb-8">
     <button
       class="px-4 py-2 rounded-lg transition-colors"
@@ -92,7 +90,6 @@
     </button>
   </div>
 
-  <!-- Error Display -->
   {#if error}
     <div class="mb-6 p-4 bg-red-100 text-red-700 rounded-lg" role="alert">
       {error}
@@ -110,7 +107,7 @@
         </div>
         <div>
           <span class="text-gray-500">Balance:</span>
-          <span class="font-mono">{balance} MATIC</span>
+          <span class="font-mono">{formattedBalance} MATIC</span>
         </div>
         <div class="col-span-2">
           <span class="text-gray-500">Address:</span>

@@ -1,12 +1,8 @@
 <!-- lib/components/modals/nfcPermission.svelte -->
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { browser } from '$app/environment';
-  import { cryptoService } from '$lib/services/crypto.js';
-  import { apiService } from '$lib/services/api.js';
+  import { onMount, onDestroy } from 'svelte';
+  import { nfcService } from '$lib/services/nfc.js';
   import type { CardInfo } from '$lib/types.js';
-  import type { Address } from 'viem';
-  import type { lib } from 'crypto-js';
 
   interface Props {
     onCardDetected: (cardInfo: CardInfo) => void;
@@ -14,59 +10,67 @@
   }
 
   let { onCardDetected, onClose }: Props = $props();
-  let scanStatus = $state<'waiting' | 'scanning'>('waiting');
+  
+  let isSupported = $state(false);
+  let isReading = $state(false);
+  let error = $state<string | null>(null);
+  let status = $state<string>('');
 
-  async function handleHashChange() {
-    if (!browser || !window.location.hash) return;
-
+  onMount(async () => {
     try {
-      scanStatus = 'scanning';
+      isSupported = await nfcService.isSupported();
+      if (!isSupported) {
+        error = 'NFC is not supported on this device';
+        return;
+      }
       
-      const parsedCard = cryptoService.parseCardUrl(window.location.hash);
-      if (!parsedCard?.id || !parsedCard.pub || !parsedCard.priv) {
-        throw new Error('Invalid card data');
+      const permission = await nfcService.requestPermission();
+      if (permission !== 'granted') {
+        error = 'NFC permission was not granted';
+        return;
       }
 
-      const [design, style] = await Promise.all([
-        apiService.getCardDesign(parsedCard.id),
-        apiService.getCardStyle(parsedCard.id)
-      ]);
-
-      const cardInfo: CardInfo = {
-        id: parsedCard.id,
-        pub: parsedCard.pub as Address,
-        priv: parsedCard.priv as lib.WordArray,
-        css: style.css,
-        model: style.model,
-        svg: design.svg
-      };
-
-      const isValid = await apiService.verifyCard(
-        cardInfo.id,
-        cryptoService.generateCardUrl(cardInfo)
-      );
-
-      if (isValid) {
-        onCardDetected(cardInfo);
-        onClose();
+      // Démarrer automatiquement la lecture
+      if (isSupported && permission === 'granted') {
+        void startReading();
       }
-    } catch (error) {
-      console.error('Failed to process card data:', error);
-      scanStatus = 'waiting';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to initialize NFC';
+    }
+  });
+
+  onDestroy(() => {
+    if (isReading) {
+      void nfcService.stopReading();
+    }
+  });
+
+  async function startReading() {
+    try {
+      await nfcService.startReading({
+        mode: 'payment',
+        onRead: ({ cardInfo, isValid }) => {
+          if (!isValid) {
+            error = 'Invalid card';
+            status = 'Card validation failed';
+            return;
+          }
+          status = 'Card read successfully';
+          onCardDetected(cardInfo);
+          onClose();
+        },
+        onError: (err) => {
+          error = err.message;
+          status = 'Reading failed';
+        },
+        onStateChange: (state: "reading" | "stopped") => {
+          isReading = state === "reading";
+        }
+      });
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to start reading';
     }
   }
-
-  onMount(() => {
-    window.addEventListener('hashchange', handleHashChange);
-    
-    if (window.location.hash) {
-      void handleHashChange();
-    }
-    
-    return () => {
-      window.removeEventListener('hashchange', handleHashChange);
-    };
-  });
 </script>
 
 <div 
@@ -78,7 +82,7 @@
     <div class="p-4 border-b border-gray-200 dark:border-gray-700">
       <div class="flex justify-between items-center">
         <h2 class="text-xl font-bold dark:text-white">
-          {scanStatus === 'scanning' ? 'Processing Card' : 'Scan Card'}
+          {isReading ? 'Scanning Card...' : 'Scan Card'}
         </h2>
         <button
           onclick={onClose}
@@ -92,29 +96,43 @@
     </div>
 
     <div class="p-6">
-      <div class="text-center space-y-6">
-        {#if scanStatus === 'scanning'}
-          <div class="w-12 h-12 mx-auto border-4 border-blue-500 border-t-transparent 
-                    rounded-full animate-spin"></div>
-          <p class="text-gray-600 dark:text-gray-300">
-            Processing card data...
-          </p>
-        {:else}
-          <p class="text-gray-600 dark:text-gray-300">
-            Please scan your card with an NFC reader and use the provided link.
-          </p>
-          
-          <div class="w-32 h-32 mx-auto">
-            <img 
-              src="/images/scan-card.svg" 
-              alt="Scan card illustration"
-              class="w-full h-full"
-            />
-          </div>
+      {#if error}
+        <div class="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded" role="alert">
+          {error}
+        </div>
+      {/if}
 
-          <p class="text-sm text-gray-500 dark:text-gray-400">
-            The browser window will automatically update once the card is scanned.
-          </p>
+      <div class="text-center space-y-6">
+        {#if !isSupported}
+          <div class="mb-4 p-3 bg-yellow-100 text-yellow-700 rounded-lg">
+            NFC is not supported on this device.
+          </div>
+        {:else}
+          {#if isReading}
+            <div class="w-16 h-16 mx-auto rounded-full border-4 border-blue-500 
+                      border-t-transparent animate-spin"></div>
+            <p class="text-gray-600 dark:text-gray-300">
+              Hold your card against the back of your device
+            </p>
+          {:else}
+            <p class="text-gray-600 dark:text-gray-300">
+              Ready to scan card
+            </p>
+            
+            <div class="w-32 h-32 mx-auto">
+              <img 
+                src="/images/scan-card.svg" 
+                alt="Scan card illustration"
+                class="w-full h-full"
+              />
+            </div>
+          {/if}
+
+          {#if status}
+            <div class="text-center {isReading ? 'animate-pulse' : ''}">
+              {status}
+            </div>
+          {/if}
         {/if}
       </div>
     </div>

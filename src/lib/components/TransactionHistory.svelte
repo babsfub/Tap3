@@ -2,14 +2,14 @@
 <script lang="ts">
   import type { TransactionRecord } from '$lib/types.js';
   import Address from './Address.svelte';
-  
+
 
   let props = $props<{
     transactions: TransactionRecord[];
   }>();
 
-  
 
+  
   function formatAmount(amount: string): string {
     const num = parseFloat(amount);
     return num.toFixed(Math.min(8, amount.split('.')[1]?.length || 0));

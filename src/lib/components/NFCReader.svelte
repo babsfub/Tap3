@@ -1,9 +1,9 @@
 <!-- lib/components/NFCReader.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
-    import { nfcService } from '$lib/services/nfc.js';
-    import { useCardState } from '$lib/stores/card.js';
-    import type { CardMode, CardInfo } from '$lib/types.js';
+  import { onMount, onDestroy } from 'svelte';
+  import { nfcService } from '$lib/services/nfc.js';
+  import { useCardState } from '$lib/stores/card.js';
+  import type { CardMode, CardInfo } from '$lib/types.js';
 
   let props = $props<{
     onRead?: (cardInfo: CardInfo) => void;
@@ -12,40 +12,39 @@
     mode?: CardMode;
   }>();
     
-    const cardState = useCardState();
+  const cardState = useCardState();
   
-    
   
-    let isSupported = $state(false);
-    let isReading = $state(false);
-    let error = $state<string | null>(null);
-    let status = $state<string>('');
+  let isSupported = $state(false);
+  let isReading = $state(false);
+  let error = $state<string | null>(null);
+  let status = $state<string>('');
   
-    onMount(async () => {
-      try {
-        isSupported = await nfcService.isSupported();
-        if (!isSupported) {
-          error = 'NFC is not supported on this device';
-          return;
-        }
-        
-        const permission = await nfcService.requestPermission();
-        if (permission !== 'granted') {
-          error = 'NFC permission was not granted';
-          return;
-        }
-      } catch (err) {
-        error = err instanceof Error ? err.message : 'Failed to initialize NFC';
+  onMount(async () => {
+    try {
+      isSupported = await nfcService.isSupported();
+      if (!isSupported) {
+        error = 'NFC is not supported on this device';
+        return;
       }
-    });
-  
-    onDestroy(() => {
-      if (isReading) {
-        void nfcService.stopReading();
+      
+      const permission = await nfcService.requestPermission();
+      if (permission !== 'granted') {
+        error = 'NFC permission was not granted';
+        return;
       }
-    });
-  
-    async function startReading() {
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to initialize NFC';
+    }
+  });
+
+  onDestroy(() => {
+    if (isReading) {
+      void nfcService.stopReading();
+    }
+  });
+
+  async function startReading() {
     try {
       await nfcService.startReading({
         mode: props.mode,
@@ -56,6 +55,7 @@
             return;
           }
           status = 'Card read successfully';
+          cardState.setCard(cardInfo);
           props.onRead?.(cardInfo);
           props.onSuccess?.();
         },
@@ -73,8 +73,8 @@
       props.onError?.(error);
     }
   }
-  </script>
-  
+</script>
+
   <div class="w-full max-w-md mx-auto p-4">
     {#if error}
       <div class="mb-4 p-3 bg-red-100 text-red-700 rounded-lg" role="alert">

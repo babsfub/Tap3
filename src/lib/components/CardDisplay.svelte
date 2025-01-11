@@ -1,6 +1,8 @@
+<!-- lib/components/CardDisplay.svelte -->
 <script lang="ts">
   import type { CardInfo } from '$lib/types.js';
   import Address from './Address.svelte';
+  import { useCardState } from '$lib/stores/card.js';
 
   let props = $props<{
     cardInfo: CardInfo;
@@ -8,12 +10,17 @@
     onUnlock?: () => void;
     isLocked?: boolean;
   }>();
+
+  const cardState = useCardState();
   
+ 
+  let formattedBalance = $derived(cardState.getFormattedBalance());
+  let isCardLocked = $derived(cardState.getState().isLocked);
 
   let cardStyle = $derived(() => {
     let style = '';
     
-    if (props.cardInfo.model) {
+    if (props.cardInfo?.model) {
       switch (props.cardInfo.model) {
         case 4:
           style += 'background-color: black;';
@@ -29,11 +36,17 @@
       }
     }
     
-    if (props.cardInfo.css) {
+    if (props.cardInfo?.css) {
       style += props.cardInfo.css;
     }
 
     return style;
+  });
+
+  $effect(() => {
+    if (props.cardInfo) {
+      cardState.setCard(props.cardInfo);
+    }
   });
 </script>
 
@@ -49,14 +62,13 @@
         </div>
       {/if}
 
-      <!-- Les éléments superposés -->
       <div class="cardId">
         #{props.cardInfo.id.toString().padStart(4, '0')}
       </div>
       
       <div class="cardAddr">
         <Address 
-          address={props.cardInfo.pub} 
+          address={props.cardInfo.pub}
           showFull={false} 
           showPrefix={true}
         />
@@ -64,10 +76,10 @@
       
       <div class="nativeBalance">
         <div class="text-sm opacity-75">Balance</div>
-        <div class="font-bold">{props.balance} MATIC</div>
+        <div class="font-bold">{formattedBalance} MATIC</div>
       </div>
 
-      {#if props.isLocked && props.onUnlock}
+      {#if isCardLocked && props.onUnlock}
         <div class="absolute inset-0 flex items-center justify-center bg-black/30">
           <button
             onclick={props.onUnlock}

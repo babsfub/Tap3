@@ -4,13 +4,17 @@
   import type { Address } from 'viem';
   import PinModal from '$lib/components/modals/PinModal.svelte';
   import { usePaymentState } from '$lib/stores/payments.js';
+  import { useCardState } from '$lib/stores/card.js';
   
   let props = $props();
   const paymentState = usePaymentState();
+  const cardState = useCardState();
 
   let address = $state('');
   let amount = $state('');
   let showPin = $state(false);
+  
+  let currentCard = $derived(cardState.getState().currentCard);
   
   // Variables pour stocker temporairement les valeurs pendant la validation PIN
   let pendingTo = $state<Address | null>(null);
@@ -23,29 +27,29 @@
 
   let isValidAddress = $derived(isAddress(address as Address));
   let isValidAmount = $derived(parseFloat(amount) > 0);
-  let canSubmit = $derived(isValidAddress && isValidAmount && !isLoading);
+  let canSubmit = $derived(isValidAddress && isValidAmount && !isLoading && currentCard);
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
     if (!canSubmit) return;
     
-    // Sauvegarder les valeurs avant d'ouvrir le modal PIN
     pendingTo = address as Address;
     pendingAmount = amount;
     showPin = true;
   }
 
   async function handlePinSubmit(pin: string) {
-    if (!pendingTo || !pendingAmount) return;
+    if (!pendingTo || !pendingAmount || !currentCard) return;
     
     try {
+      cardState.unlockCard(); // Déverrouiller la carte avec le PIN
       await paymentState.sendTransaction(pendingTo, pendingAmount, pin);
       showPin = false;
       props.onClose();
     } catch (err) {
       showPin = false;
+      cardState.lockCard(); // Reverrouiller en cas d'erreur
     } finally {
-      
       pendingTo = null;
       pendingAmount = null;
     }
