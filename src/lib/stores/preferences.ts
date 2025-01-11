@@ -16,7 +16,6 @@ const DEFAULT_PREFERENCES: UserPreferences = {
 };
 
 export function createPreferencesState(initialState: UserPreferences = DEFAULT_PREFERENCES) {
-  // Charger les préférences depuis localStorage si disponible
   let loadedState = initialState;
   if (browser) {
     try {
@@ -38,7 +37,6 @@ export function createPreferencesState(initialState: UserPreferences = DEFAULT_P
     }
   });
 
-  // Dérivation pour le thème effectif
   let effectiveTheme = (() => {
     if (state.theme === 'system') {
       return window.matchMedia('(prefers-color-scheme: dark)').matches ? 
@@ -48,11 +46,8 @@ export function createPreferencesState(initialState: UserPreferences = DEFAULT_P
   });
 
   return {
-    // Accesseurs réactifs
     getPreferences: () => state,
     getTheme: () => effectiveTheme,
-
-    // Actions
     setTheme(theme: UserPreferences['theme']) {
       state.theme = theme;
     },
@@ -65,7 +60,7 @@ export function createPreferencesState(initialState: UserPreferences = DEFAULT_P
       state.recentAddresses = [
         address,
         ...state.recentAddresses.filter(addr => addr !== address)
-      ].slice(0, 5); // Garder uniquement les 5 plus récentes
+      ].slice(0, 5); 
       state.lastUsedAddress = address;
     },
 
@@ -80,10 +75,8 @@ export function createPreferencesState(initialState: UserPreferences = DEFAULT_P
   };
 }
 
-// Clé pour le context
 const PREFERENCES_STATE_KEY = 'preferencesState';
 
-// Fonctions d'initialisation et d'utilisation du context
 export function initializePreferencesState() {
   const preferencesState = createPreferencesState();
   setContext(PREFERENCES_STATE_KEY, () => preferencesState);
@@ -94,7 +87,6 @@ export function usePreferencesState() {
   return getContext<() => ReturnType<typeof createPreferencesState>>(PREFERENCES_STATE_KEY)();
 }
 
-// Gestion des snapshots
 export const snapshot = {
   capture: () => {
     const preferences = getContext<() => ReturnType<typeof createPreferencesState>>(PREFERENCES_STATE_KEY)();

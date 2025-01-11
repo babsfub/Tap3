@@ -38,8 +38,6 @@ class CryptoService {
         privateKey.replace('0x','')
       )
       const encrypted = CryptoJS.AES.encrypt(priv, password).toString()
-      
-      // Verify encryption
       const decrypted = CryptoJS.AES.decrypt(encrypted, password)
       if (privateKey.replace('0x', '') !== decrypted.toString()) {
         throw new Error('Encryption verification failed')

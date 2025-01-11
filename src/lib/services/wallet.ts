@@ -44,7 +44,7 @@ class WalletService {
   async initialize() {
     try {
       this.core = new Core({
-        projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID
+        projectId: import.meta.env.VITE_REOWN_ID
       })
 
       this.walletkit = await WalletKit.init({

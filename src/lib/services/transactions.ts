@@ -3,21 +3,17 @@ import type { TransactionRequest } from '../types.js'
 import { walletService } from './wallet.js'
 
 class TransactionService {
-  private MAX_GAS_LIMIT = 21000n // Standard ETH transfer
+  private MAX_GAS_LIMIT = 21000n 
   
   async sendTransaction(request: TransactionRequest): Promise<Hash> {
     try {
-      // Validate inputs
       if (!request.to || !request.value) {
         throw new Error('Invalid transaction parameters')
       }
-
-      // Estimate gas if not provided
       if (!request.gasLimit) {
         request.gasLimit = await this.estimateGas(request)
       }
 
-      // Get current gas price if not provided
       if (!request.gasPrice) {
         request.gasPrice = await walletService.getGasPrice()
       }
@@ -60,10 +56,8 @@ class TransactionService {
         data: request.data || '0x'
       })
 
-      // Add 10% buffer
       const withBuffer = (estimated * 110n) / 100n
 
-      // Cap at max gas limit
       return withBuffer > this.MAX_GAS_LIMIT 
         ? this.MAX_GAS_LIMIT.toString()
         : withBuffer.toString()

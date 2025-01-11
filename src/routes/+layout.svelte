@@ -7,7 +7,10 @@
 	import { initializePreferencesState } from '$lib/stores/preferences.js';
 	import { initializeCardState } from '$lib/stores/card.js';
 	import { cryptoService } from '$lib/services/crypto.js';
+	import type { Address } from 'viem';
+	import type { lib } from 'crypto-js';
 	import '../app.css';
+
 	
 	let { children } = $props();
 	let isInitialized = $state(false);
@@ -25,15 +28,13 @@
 	  const preferences = initializePreferencesState();
 	  const card = initializeCardState();
   
-	  // Vérifier si nous avons un hash pour la carte
 	  if (browser && window.location.hash) {
 		const parsedCard = cryptoService.parseCardUrl(window.location.hash);
 		if (parsedCard) {
-		  // Pre-initialiser le cardState avec les données de base
 		  card.setCard({
-			pub: parsedCard.pub as Address ?? '',
-			id: parsedCard.id,
-			priv: parsedCard.priv,
+			pub: (parsedCard.pub && parsedCard.pub.startsWith('0x') ? parsedCard.pub : `0x${parsedCard.pub ?? ''}`) as Address ?? '',
+			id: parsedCard.id ?? 0,
+			priv: parsedCard.priv as lib.WordArray ?? '',
 		  });
 		}
 	  }
