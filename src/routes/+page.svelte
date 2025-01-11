@@ -1,77 +1,76 @@
 <!-- src/routes/+page.svelte -->
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { browser } from '$app/environment';
-  import { walletService } from '$lib/services/wallet.js';
-  import { cryptoService } from '$lib/services/crypto.js';
-  import CardDisplay from '$lib/components/CardDisplay.svelte';
-  import CardActions from '$lib/components/CardActions.svelte';
-  import TransactionHistory from '$lib/components/TransactionHistory.svelte';
-  import PaymentModal from '$lib/components/Payment.svelte';
-  import PinModal from '$lib/components/modals/PinModal.svelte';
-  import QrCode from '$lib/components/QRcode.svelte';
-  import { apiService } from '$lib/services/api.js';
-  import NfcM from '$lib/components/modals/nfcPermission.svelte';
-  import { useCardState } from '$lib/stores/card.js';
-  import { useHistoryState } from '$lib/stores/history.js';
-  import { usePaymentState } from '$lib/stores/payments.js';
-  import type { CardInfo } from '$lib/types.js';
-  import type { Address } from 'viem';
+   import { onMount } from 'svelte';
+    import { browser } from '$app/environment';
+    import { walletService } from '$lib/services/wallet.js';
+    import { cryptoService } from '$lib/services/crypto.js';
+    import { useCardState } from '$lib/stores/card.js';
+    import { useHistoryState } from '$lib/stores/history.js';
+    import { usePaymentState } from '$lib/stores/payments.js';
+    import CardDisplay from '$lib/components/CardDisplay.svelte';
+    import CardActions from '$lib/components/CardActions.svelte';
+    import TransactionHistory from '$lib/components/TransactionHistory.svelte';
+    import PaymentModal from '$lib/components/Payment.svelte';
+    import PinModal from '$lib/components/modals/PinModal.svelte';
+    import QrCode from '$lib/components/QRcode.svelte';
+    import { apiService } from '$lib/services/api.js';
+    import NfcM from '$lib/components/modals/nfcPermission.svelte';
+    import type { CardInfo } from '$lib/types.js';
+    import type { Address } from 'viem';
     import type { lib } from 'crypto-js';
 
-  const cardState = useCardState();
-  const historyState = useHistoryState();
-  const paymentState = usePaymentState();
+    const cardState = useCardState();
+    const historyState = useHistoryState();
+    const paymentState = usePaymentState();
 
-  let currentCardState = $derived(cardState.getState());
-  let isLoading = $state(true);
-  let error = $state<string | null>(null);
-  let showPaymentModal = $state(false);
-  let showPinModal = $state(false);
-  let showQRCode = $state(false);
-  let showNFCPrompt = $state(false);
-  let balanceInterval: number;
-  let pendingPayment = $state(false);
+    let currentCardState = $derived(cardState.getState());
+    let isLoading = $state(true);
+    let error = $state<string | null>(null);
+    let showPaymentModal = $state(false);
+    let showPinModal = $state(false);
+    let showQRCode = $state(false);
+    let showNFCPrompt = $state(false);
+    let balanceInterval: number;
+    let pendingPayment = $state(false);
 
-  async function loadCard() {
-    if (!browser) return;
-    
-    try {
-        isLoading = true;
-        error = null;
+    async function loadCard() {
+        if (!browser) return;
+        
+        try {
+            isLoading = true;
+            error = null;
 
-        const hash = window.location.hash;
-        if (!hash) {
-            throw new Error('No card data found');
+            const hash = window.location.hash;
+            if (!hash) {
+                throw new Error('No card data found');
+            }
+
+            const parsedCard = cryptoService.parseCardUrl(hash);
+            if (!parsedCard || !parsedCard.id || !parsedCard.pub || !parsedCard.priv) {
+                throw new Error('Invalid card data');
+            }
+
+            const design = await apiService.getCardDesign(parsedCard.id);
+            const newCardInfo: CardInfo = {
+                pub: parsedCard.pub as Address ?? '',
+                id: parsedCard.id,
+                priv: parsedCard.priv as lib.WordArray ?? '',
+                svg: design.svg ?? 'default',
+                css: design.css ?? '',
+                model: design.id_model ?? 0
+            };
+
+            await walletService.initialize();
+            cardState.setCard(newCardInfo);
+            startBalancePolling();
+
+        } catch (err) {
+            console.error('Failed to load card:', err);
+            error = err instanceof Error ? err.message : 'Failed to load card';
+        } finally {
+            isLoading = false;
         }
-
-        const parsedCard = cryptoService.parseCardUrl(hash);
-        if (!parsedCard || !parsedCard.id || !parsedCard.pub || !parsedCard.priv) {
-            throw new Error('Invalid card data');
-        }
-
-        const design = await apiService.getCardDesign(parsedCard.id);
-        const newCardInfo: CardInfo = {
-            pub: parsedCard.pub as Address?? '',
-            id: parsedCard.id,
-            priv: parsedCard.priv as lib.WordArray?? '',
-            svg: design.svg ?? 'default',
-            css: design.css ?? '',
-            model: design.id_model ?? 0
-        };
-
-        await walletService.initialize();
-        cardState.setCard(newCardInfo);
-        startBalancePolling();
-
-    } catch (err) {
-        console.error('Failed to load card:', err);
-        error = err instanceof Error ? err.message : 'Failed to load card';
-    } finally {
-        isLoading = false;
     }
-}
-
   function startBalancePolling() {
       if (!currentCardState.currentCard?.pub) return;
       
