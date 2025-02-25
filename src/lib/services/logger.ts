@@ -1,13 +1,25 @@
 // lib/services/logger.ts
-import { writable } from 'svelte/store';
+import { writable, type Writable } from 'svelte/store';
+
+// Type de log
+export interface LogEntry {
+  level: string;
+  message: string;
+  timestamp: number;
+}
 
 // Créer un store pour les logs
-export const logs = writable<{level: string; message: string; timestamp: number}[]>([]);
+export const logs = writable<LogEntry[]>([]);
 
 // Limite de logs à garder
 const MAX_LOGS = 50;
 
 class LoggerService {
+  // Getter pour accéder au store
+  get logs() {
+    return logs;
+  }
+  
   debug(message: string, data?: any): void {
     this.addLog('debug', this.formatMessage(message, data));
   }
@@ -32,10 +44,9 @@ class LoggerService {
 
   private formatMessage(message: string, data?: any): string {
     if (data) {
-      // Essayer de formatter les objets de manière lisible
       try {
         const dataStr = typeof data === 'object' 
-          ? JSON.stringify(data, null, 2).substring(0, 200) // Limite pour éviter les objets trop grands
+          ? JSON.stringify(data, null, 2).substring(0, 200)
           : String(data);
         return `${message} | ${dataStr}`;
       } catch (e) {
@@ -47,16 +58,14 @@ class LoggerService {
 
   private addLog(level: string, message: string): void {
     logs.update(currentLogs => {
-      // Ajouter le nouveau log
       const newLogs = [
         { level, message, timestamp: Date.now() },
         ...currentLogs
       ];
-      
-      // Garder seulement les MAX_LOGS derniers logs
       return newLogs.slice(0, MAX_LOGS);
     });
   }
 }
 
+// Créer une instance unique de LoggerService
 export const logger = new LoggerService();
