@@ -7,6 +7,7 @@
 	import { initializePreferencesState } from '$lib/stores/preferences.js';
 	import { initializeCardState } from '$lib/stores/card.js';
 	import { cryptoService } from '$lib/services/crypto.js';
+	import DebugPanel from '$lib/components/DebugPanel.svelte';
 	import type { Address } from 'viem';
 	import type { lib } from 'crypto-js';
 	import '../app.css';
@@ -43,26 +44,40 @@
 	}
 	
 	async function init() {
-	  try {
-		if (!stores) {
-		  stores = await initStores();
-		}
-		isInitialized = true;
-	  } catch (error) {
-		console.error('Initialization failed:', error);
-		isInitialized = true; 
-	  }
-	}
-	
+  // Timeout de sécurité
+  const timeoutPromise = new Promise(resolve => {
+    setTimeout(() => {
+      console.warn('Timeout reached, forcing initialization');
+      resolve(null);
+    }, 3000);
+  });
+
+  try {
+    if (!stores) {
+      // Utiliser Promise.race pour ne pas attendre indéfiniment
+	  stores = await Promise.race([initStores(), timeoutPromise]) as {
+		history: ReturnType<typeof initializeHistoryState>;
+		payment: ReturnType<typeof initializePaymentState>;
+		preferences: ReturnType<typeof initializePreferencesState>;
+		card: ReturnType<typeof initializeCardState>;
+	  } | null;
+    }
+    isInitialized = true;
+  } catch (error) {
+    console.error('Initialization failed:', error);
+    isInitialized = true;
+  }
+}
 	onMount(() => {
 	  void init();
 	});
   </script>
   
-  {#if !isInitialized}
-	<div class="fixed inset-0 flex items-center justify-center">
-	  <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-	</div>
-  {:else}
-	{@render children()}
-  {/if}
+  {#if isInitialized}
+  {@render children()}
+  <DebugPanel />
+{:else}
+  <div class="fixed inset-0 flex items-center justify-center">
+    <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+  </div>
+{/if}

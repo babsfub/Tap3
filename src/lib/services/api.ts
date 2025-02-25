@@ -1,6 +1,6 @@
 // lib/services/api.ts
 import type { CardDesign } from '$lib/types.js';
-import { logger } from './logger.js';
+import { logger } from './DebugService.js';
 
 class ApiService {
   private baseUrl: string = 'https://api.tap3.me';

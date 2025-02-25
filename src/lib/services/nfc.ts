@@ -2,7 +2,7 @@
 import { browser } from '$app/environment';
 import { cryptoService } from './crypto.js';
 import { apiService } from './api.js';
-import { logger } from './logger.js';
+import { debugService } from './DebugService.js';
 import type { CardMode, CardInfo } from '$lib/types.js';
 
 interface NFCWriteOptions {
@@ -239,19 +239,21 @@ class NFCService {
   }
 
   // Dans nfcService, méthode processCardData
-  private async processCardData(data: string): Promise<CardInfo | null> {
+  // Correction dans la méthode processCardData
+private async processCardData(data: string): Promise<CardInfo | null> {
     try {
-      logger.info("Processing card data...");
-      logger.debug("Raw card data", { length: data.length, preview: data.substring(0, 30) + '...' });
+      debugService.info("Processing card data...");
+      debugService.debug("Raw card data: " + data.substring(0, 30) + '...');
       
       const parsedCard = cryptoService.parseCardUrl(data);
-      logger.info("Parsed card", { success: !!parsedCard, id: parsedCard?.id });
+      debugService.info("Parsed card: " + (parsedCard ? "success" : "failed"));
+      
       if (!parsedCard?.id) {
-        console.error("Invalid card ID in parsed data");
+        debugService.error("Invalid card ID in parsed data");
         return null;
       }
       
-      console.log("Fetching design for card ID:", parsedCard.id);
+      debugService.info("Fetching design for card ID: " + parsedCard.id);
       
       // Utiliser Partial<CardInfo> pour indiquer que certains champs peuvent être manquants
       const baseCardInfo: Partial<CardInfo> = {
@@ -264,13 +266,13 @@ class NFCService {
         // Récupérer le design et le style de manière individuelle avec gestion d'erreur
         const design = await apiService.getCardDesign(parsedCard.id)
           .catch(err => {
-            console.error("Design fetch error:", err);
+            debugService.error("Design fetch error: " + err);
             return {}; // Objet vide en cas d'échec
           });
         
         const style = await apiService.getCardStyle(parsedCard.id)
           .catch(err => {
-            console.error("Style fetch error:", err);
+            debugService.error("Style fetch error: " + err);
             return { css: "", model: 0 }; // Valeurs par défaut
           });
         
@@ -282,11 +284,12 @@ class NFCService {
           model: style?.model || baseCardInfo.model || 0,
         };
         
-        console.log("Card processing complete:", result);
+        debugService.info("Card processing complete");
+        debugService.debug("Card result: " + JSON.stringify(result));
         return result as CardInfo;
         
       } catch (apiError) {
-        console.warn("API error - using fallback data:", apiError);
+        debugService.warn("API error - using fallback data: " + apiError);
         // Retourner parsedCard avec les valeurs par défaut pour s'assurer que tous les champs obligatoires sont présents
         return {
           ...parsedCard,
@@ -295,16 +298,17 @@ class NFCService {
           svg: baseCardInfo.svg || "default"
         } as CardInfo;
       }
-  
+
     } catch (error) {
-      console.error('Card data processing failed:', error);
+      debugService.error('Card data processing failed: ' + error);
       if (error instanceof Error) {
-        console.error('Error details:', error.message);
+        debugService.error('Error details: ' + error.message);
       }
       return null;
     }
   }
 
-}
+} 
 
 export const nfcService = new NFCService();
+

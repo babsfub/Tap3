@@ -13,7 +13,7 @@
     import PaymentModal from '$lib/components/Payment.svelte';
     import PinModal from '$lib/components/modals/PinModal.svelte';
     import QrCode from '$lib/components/QRcode.svelte';
-    import DebugConsole from '$lib/components/DebugConsole.svelte';
+    import DebugConsole from '$lib/components/DebugPanel.svelte';
     import { apiService } from '$lib/services/api.js';
     import NfcM from '$lib/components/modals/nfcPermission.svelte';
     import type { CardInfo } from '$lib/types.js';
