@@ -116,14 +116,28 @@ class ApiService {
   private async getCardById(cardId: number): Promise<{ url: string } | null> {
     try {
       debugService.debug(`Fetching card data for ID: ${cardId}`);
-      const response = await fetch(this.getEndpoint(`card/${cardId}`));
+      // Utiliser catalogue au lieu de card
+      const response = await fetch(`${this.baseUrl}/catalogue/${cardId}`);
       if (!response.ok) {
         debugService.error(`Failed to fetch card ${cardId}: ${response.status}`);
         throw new Error('Failed to fetch card by ID');
       }
-
+  
       const data = await response.json();
-      return data;
+      
+      // Si la réponse est un tableau, prendre le premier élément
+      const cardData = Array.isArray(data) ? data[0] : data;
+      
+      if (!cardData || !cardData.url) {
+        debugService.warn(`Card data does not contain URL for ID: ${cardId}`);
+        // Construire une URL fictive basée sur l'ID si aucune n'est trouvée
+        // Ceci est une solution de contournement temporaire
+        return { 
+          url: `https://tap3.me/#${cardId}` 
+        };
+      }
+      
+      return cardData;
     } catch (error) {
       debugService.error(`Failed to get card by ID: ${error instanceof Error ? error.message : String(error)}`);
       return null;
