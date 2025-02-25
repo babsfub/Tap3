@@ -6,12 +6,12 @@
   import type { CardMode, CardInfo } from '$lib/types.js';
 
   let props = $props<{
-  onRead?: (cardInfo: CardInfo) => void;
-  onError?: (error: string) => void;
-  onSuccess?: () => void;
-  onClose?: () => void;  
-  mode?: CardMode;
-}>();
+    onRead?: (cardInfo: CardInfo) => void;
+    onError?: (error: string) => void;
+    onSuccess?: () => void;
+    onClose?: () => void;  
+    mode?: CardMode;
+  }>();
     
   const cardState = useCardState();
   
@@ -45,7 +45,9 @@
     }
   });
 
-  async function startReading() {
+  async function startReading(e: Event) {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+
     try {
       await nfcService.startReading({
         mode: props.mode,
