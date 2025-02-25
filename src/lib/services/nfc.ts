@@ -51,6 +51,9 @@ class NFCService {
     if (this.isReading || !browser) return;
 
     try {
+      // Nettoyez d'abord tout lecteur existant
+      await this.stopReading();
+      
       this.isReading = true;
       onStateChange?.('reading');
       const permission = await this.requestPermission();
@@ -60,17 +63,14 @@ class NFCService {
 
       // Initialisation du lecteur NFC
       this.reader = new NDEFReader();
-      this.isReading = true;
       this.abortController = new AbortController();
 
-      // Démarrage du scan NFC
-      await this.reader.scan({
-        signal: this.abortController.signal
-      });
-
-      // Gestion des événements de lecture
-      this.reader.addEventListener('reading', async (event: Event) => {
+      // Gestionnaires pour capturer les événements et éviter la propagation
+      const handleReading = async (event: Event) => {
         try {
+          // Empêcher toute propagation qui pourrait causer un rechargement
+          event.stopPropagation();
+          
           const ndefEvent = event as NDEFReadingEvent;
           const message = ndefEvent.message;
 
@@ -100,20 +100,55 @@ class NFCService {
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Card reading failed';
           onError(new Error(errorMessage));
-          onStateChange?.('stopped'); 
         }
+      };
+
+      const handleReadingError = (event: Event) => {
+        event.stopPropagation();
+        onError(new Error('NFC read operation failed'));
+      };
+
+      // Démarrage du scan NFC
+      await this.reader.scan({
+        signal: this.abortController.signal
       });
 
-      this.reader.addEventListener('readingerror', () => {
-        onError(new Error('NFC read operation failed'));
-      });
+      // Ajouter les écouteurs d'événements
+      this.reader.addEventListener('reading', handleReading);
+      this.reader.addEventListener('readingerror', handleReadingError);
 
     } catch (error) {
       this.cleanupReader();
+      onStateChange?.('stopped');
       const errorMessage = error instanceof Error ? error.message : 'NFC operation failed';
       onError(new Error(errorMessage));
     }
   }
+
+  async stopReading(): Promise<void> {
+      try {
+        if (this.reader && this.isReading) {
+          // Tentative de nettoyage explicite des événements si possible
+          if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+          }
+          
+          // Force la réinitialisation complète
+          this.isReading = false;
+          this.reader = null;
+        }
+        
+        // Délai pour s'assurer que tout est bien nettoyé
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (error) {
+        console.error("Error stopping NFC reader:", error);
+        // Réinitialisation forcée en cas d'erreur
+        this.isReading = false;
+        this.reader = null;
+        this.abortController = null;
+      }
+    }
 
   async writeCard(cardInfo: CardInfo, options: NFCWriteOptions): Promise<void> {
     if (!browser || !await this.isSupported()) {
@@ -158,10 +193,6 @@ class NFCService {
     }
   }
 
-  async stopReading(): Promise<void> {
-    this.cleanupReader();
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
   
   private cleanupReader(): void {
     if (this.abortController) {

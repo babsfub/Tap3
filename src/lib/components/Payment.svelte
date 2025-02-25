@@ -36,30 +36,51 @@
 
   // Gestion de la lecture NFC du destinataire
   async function handleRecipientCardRead(cardInfo: CardInfo) {
-    // Arrêter la lecture immédiatement
-    await nfcService.stopReading();
+  try {
+    // Arrêter la lecture immédiatement et complètement
+    await nfcService.stopReading().catch(() => {/* ignorer les erreurs */});
     
     if (cardInfo.pub) {
       // Vérifier que ce n'est pas la même carte
-      if (cardInfo.pub === currentCard?.pub) {
+      if (currentCard?.pub && cardInfo.pub === currentCard.pub) {
         error = "Cannot send to the same card";
         return;
       }
       
+      // Mettre à jour l'adresse et cacher le lecteur NFC
       address = cardInfo.pub;
+      // Important: attendez un peu avant de cacher le lecteur NFC
+      await new Promise(resolve => setTimeout(resolve, 100));
       showNFCReader = false;
-      error = null; // Clear any previous error
+      error = null; // Effacer les erreurs précédentes
     } else {
       error = 'Invalid recipient card';
     }
+  } catch (err) {
+    console.error("Error handling recipient card:", err);
+    error = err instanceof Error ? err.message : 'Error processing recipient card';
   }
+}
 
-  async function startNFCReading() {
-    error = null; // Clear previous errors
-    await nfcService.stopReading(); // Ensure previous reader is stopped
-    await new Promise(resolve => setTimeout(resolve, 200)); // Add small delay
+  async function startNFCReading(e: Event) {
+  // Empêcher tout comportement par défaut
+  if (e && typeof e.preventDefault === 'function') e.preventDefault();
+  
+  error = null; // Effacer les erreurs précédentes
+  
+  try {
+    // S'assurer que le lecteur est arrêté avant de commencer
+    await nfcService.stopReading().catch(() => {/* ignorer les erreurs */});
+    
+    // Un délai plus long pour s'assurer que tout est bien nettoyé
+    await new Promise(resolve => setTimeout(resolve, 400));
+    
+    // Après le nettoyage, montrer le lecteur NFC
     showNFCReader = true;
+  } catch (err) {
+    error = err instanceof Error ? err.message : 'Failed to start NFC reader';
   }
+}
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
