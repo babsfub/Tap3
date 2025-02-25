@@ -240,27 +240,70 @@ class NFCService {
   // Dans nfcService, méthode processCardData
   private async processCardData(data: string): Promise<CardInfo | null> {
     try {
+      console.log("Processing card data...");
+      
       const parsedCard = cryptoService.parseCardUrl(data);
-      if (!parsedCard?.id) return null;
-
-      // Récupérer le design et le style de la carte
-      const [design, style] = await Promise.all([
-        apiService.getCardDesign(parsedCard.id),
-        apiService.getCardStyle(parsedCard.id)
-      ]);
-
-      return {
-        ...parsedCard,
-        ...design,
-        css: style.css,
-        model: style.model
-      } as CardInfo;
-
+      console.log("Parsed card:", parsedCard ? "success" : "failed"); 
+      
+      if (!parsedCard?.id) {
+        console.error("Invalid card ID in parsed data");
+        return null;
+      }
+      
+      console.log("Fetching design for card ID:", parsedCard.id);
+      
+      // Utiliser Partial<CardInfo> pour indiquer que certains champs peuvent être manquants
+      const baseCardInfo: Partial<CardInfo> = {
+        css: "", // Style par défaut
+        model: 0, // Modèle par défaut
+        svg: "default" // SVG par défaut
+      };
+      
+      try {
+        // Récupérer le design et le style de manière individuelle avec gestion d'erreur
+        const design = await apiService.getCardDesign(parsedCard.id)
+          .catch(err => {
+            console.error("Design fetch error:", err);
+            return {}; // Objet vide en cas d'échec
+          });
+        
+        const style = await apiService.getCardStyle(parsedCard.id)
+          .catch(err => {
+            console.error("Style fetch error:", err);
+            return { css: "", model: 0 }; // Valeurs par défaut
+          });
+        
+        // Fusionner tout en priorisant les données récupérées et en s'assurant que les champs obligatoires sont présents
+        const result = {
+          ...parsedCard, // Contient les champs obligatoires comme id
+          ...design,
+          css: style?.css || baseCardInfo.css || "",
+          model: style?.model || baseCardInfo.model || 0,
+        };
+        
+        console.log("Card processing complete:", result);
+        return result as CardInfo;
+        
+      } catch (apiError) {
+        console.warn("API error - using fallback data:", apiError);
+        // Retourner parsedCard avec les valeurs par défaut pour s'assurer que tous les champs obligatoires sont présents
+        return {
+          ...parsedCard,
+          css: baseCardInfo.css || "",
+          model: baseCardInfo.model || 0,
+          svg: baseCardInfo.svg || "default"
+        } as CardInfo;
+      }
+  
     } catch (error) {
       console.error('Card data processing failed:', error);
+      if (error instanceof Error) {
+        console.error('Error details:', error.message);
+      }
       return null;
     }
   }
+
 }
 
 export const nfcService = new NFCService();

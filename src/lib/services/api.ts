@@ -8,29 +8,57 @@ class ApiService {
     return `${this.baseUrl}/${path.replace(/^\//, '')}`;
   }
 
-  async getCardDesign(cardId: number): Promise<CardDesign> {
+  // Dans api.js
+async getCardDesign(cardId: number): Promise<any> {
     try {
-      const response = await fetch(this.getEndpoint(`catalogue/${cardId}`));
+      const response = await fetch(`${this.baseUrl}/catalogue/${cardId}`);
+      
+      // Vérifier si la réponse est OK
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Vérifier si les données sont dans le format attendu
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        console.warn('API returned unexpected data format:', data);
+        return {}; // Retourner un objet vide comme fallback
+      }
+      
+      return {
+        svg: data[0]?.svg || 'default',
+        id_model: data[0]?.id_model || 0
+      };
+    } catch (error) {
+      console.error('Failed to fetch card design:', error);
+      return {}; // Retourner un objet vide en cas d'erreur
+    }
+  }
+
+  async getCardStyle(cardId: number): Promise<any> {
+    try {
+      // Utiliser la même API que getCardDesign si c'est la même source
+      // Ou implémenter l'appel à votre API de style
+      const response = await fetch(`${this.baseUrl}/catalogue/${cardId}`);
       
       if (!response.ok) {
-        throw new Error('Failed to fetch card design');
+        throw new Error(`API error: ${response.status}`);
       }
-
+      
       const data = await response.json();
-      if (!data || !data[0]) {
-        throw new Error('No design found for card');
+      
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        return { css: '', model: 0 };
       }
-
-      const design: CardDesign = {
-        id_model: data[0].id_model,
-        css: this.processCardCSS(data[0].css),
-        svg: data[0].svg
+      
+      return {
+        css: data[0]?.css || '',
+        model: data[0]?.id_model || 0
       };
-
-      return design;
     } catch (error) {
-      console.error('Failed to get card design:', error);
-      throw error;
+      console.error('Failed to fetch card style:', error);
+      return { css: '', model: 0 };
     }
   }
 
@@ -113,23 +141,6 @@ class ApiService {
     }
   }
 
-  async getCardStyle(cardId: number): Promise<{css: string, model: number}> {
-    try {
-      const response = await fetch(this.getEndpoint(`style/${cardId}`));
-      if (!response.ok) {
-        throw new Error('Failed to fetch card style');
-      }
-
-      const data = await response.json();
-      return {
-        css: this.processCardStyle(data.css, data.model),
-        model: data.model
-      };
-    } catch (error) {
-      console.error('Failed to get card style:', error);
-      throw error;
-    }
-  }
 
   private processCardStyle(css: string, model: number): string {
     let baseStyle = 'background-color: ';
