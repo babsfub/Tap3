@@ -6,11 +6,12 @@
   import type { CardMode, CardInfo } from '$lib/types.js';
 
   let props = $props<{
-    onRead?: (cardInfo: CardInfo) => void;
-    onError?: (error: string) => void;
-    onSuccess?: () => void;
-    mode?: CardMode;
-  }>();
+  onRead?: (cardInfo: CardInfo) => void;
+  onError?: (error: string) => void;
+  onSuccess?: () => void;
+  onClose?: () => void;  
+  mode?: CardMode;
+}>();
     
   const cardState = useCardState();
   

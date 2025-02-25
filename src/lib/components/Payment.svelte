@@ -9,9 +9,9 @@
   import { useCardState } from '$lib/stores/card.js';
   import { nfcService } from '$lib/services/nfc.js';
   
-  let props = $props<{
+  let { onSubmit, onClose } = $props<{
+    onSubmit: (to: Address, amount: string, pin: string) => Promise<void>;
     onClose: () => void;
-    onSubmit: (amount: number) => Promise<void>;
   }>();
 
   const paymentState = usePaymentState();
@@ -75,9 +75,9 @@
     
     try {
       cardState.unlockCard(); 
-      await paymentState.sendTransaction(pendingTo, pendingAmount, pin);
+      await onSubmit(pendingTo, pendingAmount, pin);
       showPin = false;
-      props.onClose();
+      onClose();
     } catch (err) {
       error = err instanceof Error ? err.message : 'Payment failed';
       showPin = false;
@@ -94,7 +94,7 @@
     <header class="mb-6 flex justify-between items-center">
       <h2 id="modal-title" class="text-xl font-bold dark:text-white">Send Payment</h2>
       <button 
-        onclick={props.onClose} 
+        onclick={onClose} 
         class="text-gray-500 hover:text-gray-700 dark:text-gray-400 
                dark:hover:text-gray-300"
         aria-label="Close"
@@ -170,7 +170,7 @@
         <footer class="flex justify-end gap-3 pt-4">
           <button 
             type="button"
-            onclick={props.onClose}
+            onclick={onClose}
             class="px-4 py-2 text-gray-700 bg-gray-100 rounded-md 
                    hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
                    dark:hover:bg-gray-600 transition-colors"
@@ -196,12 +196,14 @@
 </div>
 
 {#if showPin}
-  <PinModal
-    title="Confirm Payment"
-    onSubmit={handlePinSubmit}
-    onClose={() => {
-      showPin = false;
-      error = null;
-    }}
-  />
+  
+   <PinModal
+      title="Confirm Payment"
+      onSubmit={(pin) => handlePinSubmit(pin)}
+      onClose={() => {
+        showPin = false;
+        error = null;
+      }}
+    />
+  
 {/if}

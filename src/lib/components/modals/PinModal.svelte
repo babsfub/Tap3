@@ -2,8 +2,8 @@
 <script lang="ts">
   import { cryptoService } from '$lib/services/crypto.js';
 
-  let props = $props<{
-    onSubmit: (password: string) => Promise<void>;
+  let { onSubmit, onClose, title = 'Enter PIN' } = $props<{
+    onSubmit: (pin: string) => Promise<void>;
     onClose: () => void;
     title?: string;
   }>();
@@ -25,7 +25,7 @@
     try {
       isLoading = true;
       error = null;
-      await props.onSubmit(password);
+      await onSubmit(password);
       password = ''; // Reset password après succès
     } catch (err) {
       error = err instanceof Error ? err.message : 'Invalid password';
@@ -59,11 +59,11 @@
         id="password-modal-title" 
         class="text-xl font-bold dark:text-white"
       >
-        {props.title ?? 'Enter Password'}
+        {title ?? 'Enter Password'}
       </h2>
       
       <button 
-        onclick={props.onClose}
+        onclick={onClose}
         class="text-gray-500 hover:text-gray-700 dark:text-gray-400 
                dark:hover:text-gray-300 transition-colors"
         aria-label="Close"
@@ -121,7 +121,7 @@
           class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg
                  hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
                  dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
-          onclick={props.onClose}
+          onclick={onClose}
           disabled={isLoading}
         >
           Cancel

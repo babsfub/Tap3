@@ -212,10 +212,10 @@
 {/if}
 
 {#if showPaymentModal}
-  <PaymentModal
-      onSubmit={handlePaymentSubmit}
-      onClose={() => showPaymentModal = false}
-  />
+<PaymentModal
+  onSubmit={handlePaymentSubmit}
+  onClose={() => showPaymentModal = false}
+/>
 {/if}
 
 {#if showPinModal}
