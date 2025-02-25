@@ -123,11 +123,12 @@ class CryptoService {
   }
 
   public generateCardUrl(cardInfo: CardInfo): string {
+    const currentDomain = window.location.origin;
     const pubBase64 = this.hexToBase64(cardInfo.pub)
     const idBase64 = this.base10ToBase64(cardInfo.id)
     const privBase64 = CryptoJS.enc.Base64.stringify(cardInfo.priv)
     
-    return `#${pubBase64}:${privBase64}:${idBase64}`
+    return `${currentDomain}/#${pubBase64}:${privBase64}:${idBase64}`
   }
 }
 

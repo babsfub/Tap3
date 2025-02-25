@@ -78,26 +78,45 @@ async getCardDesign(cardId: number): Promise<any> {
 
   async verifyCard(cardId: number, cardUrl: string): Promise<boolean> {
     try {
-      const response = await fetch(this.getEndpoint('verify'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          cardId,
-          signature: cardUrl
-        })
+      // Récupérer l'URL stockée en base de données
+      const storedCard = await this.getCardById(cardId);
+      if (!storedCard || !storedCard.url) return false;
+      
+      // Extraire seulement la partie après le '#' des deux URLs
+      const extractHash = (url: string) => {
+        const hashIndex = url.indexOf('#');
+        return hashIndex >= 0 ? url.substring(hashIndex) : url;
+      };
+      
+      const storedHash = extractHash(storedCard.url);
+      const receivedHash = extractHash(cardUrl);
+      
+      console.log("Comparing card data:", { 
+        storedHash, 
+        receivedHash,
+        match: storedHash === receivedHash 
       });
+      
+      // Comparer uniquement la partie hash
+      return storedHash === receivedHash;
+    } catch (error) {
+      console.error("Card verification error:", error);
+      return false;
+    }
+  }
 
+  private async getCardById(cardId: number): Promise<{ url: string } | null> {
+    try {
+      const response = await fetch(this.getEndpoint(`card/${cardId}`));
       if (!response.ok) {
-        return false;
+        throw new Error('Failed to fetch card by ID');
       }
 
       const data = await response.json();
-      return data.valid === true;
+      return data;
     } catch (error) {
-      console.error('Card verification failed:', error);
-      return false;
+      console.error('Failed to get card by ID:', error);
+      return null;
     }
   }
 
