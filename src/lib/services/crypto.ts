@@ -40,7 +40,7 @@ parseCardUrl(data: string): any {
     
     return {
       pub: pubKey.startsWith('0x') ? pubKey : `0x${pubKey}`,
-      priv: this.base64ToHex(privKey),
+      priv: CryptoJS.enc.Base64.parse(privKey), 
       id: id
     };
   } catch (error) {
@@ -76,39 +76,44 @@ parseCardUrl(data: string): any {
 
   public decryptPrivateKey(encryptedKey: CryptoJS.lib.WordArray | string, password: string): string {
     if (!this.validatePassword(password)) {
-      throw new Error('Invalid password')
+      throw new Error('Invalid password');
     }
-
+  
     try {
-      const encryptedStr = typeof encryptedKey === 'string' 
-        ? encryptedKey 
-        : CryptoJS.enc.Base64.stringify(encryptedKey)
+      let encryptedStr: string;
       
-      const decrypted = CryptoJS.AES.decrypt(encryptedStr, password).toString()
+      if (typeof encryptedKey === 'string') {
+        encryptedStr = encryptedKey;
+      } else {
+        // Vérifier si c'est bien un WordArray avant conversion
+        if (encryptedKey && typeof encryptedKey.toString === 'function') {
+          encryptedStr = CryptoJS.enc.Base64.stringify(encryptedKey);
+        } else {
+          throw new Error('Invalid encrypted key format');
+        }
+      }
+      
+      const decrypted = CryptoJS.AES.decrypt(encryptedStr, password).toString();
       
       if (!decrypted || decrypted.length !== 64) {
-        throw new Error('Decryption failed')
+        throw new Error('Decryption failed');
       }
-
-      return `0x${decrypted}`
+  
+      return `0x${decrypted}`;
     } catch (error) {
-      throw new Error('Failed to decrypt')
+      debugService.error(`Decryption error: ${error}`);
+      throw new Error('Failed to decrypt');
     }
   }
 
-  private base64ToHex(str: string): string {
-    if (!str) throw new Error('Invalid input')
+  private base64ToHex(str: string): CryptoJS.lib.WordArray {
+    if (!str) throw new Error('Invalid input');
     
     try {
-      const raw = atob(str)
-      let result = ''
-      for (let i = 0; i < raw.length; i++) {
-        const hex = raw.charCodeAt(i).toString(16)
-        result += (hex.length === 2 ? hex : '0' + hex)
-      }
-      return result.toLowerCase()
+      return CryptoJS.enc.Base64.parse(str);
     } catch (error) {
-      throw new Error('Invalid base64 string')
+      debugService.error(`Base64 to Hex conversion error: ${error}`);
+      throw new Error('Invalid base64 string');
     }
   }
 
