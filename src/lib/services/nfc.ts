@@ -241,11 +241,11 @@ class NFCService {
   // Dans nfcService, méthode processCardData
   private async processCardData(data: string): Promise<CardInfo | null> {
     try {
-      console.log("Processing card data...");
+      logger.info("Processing card data...");
+      logger.debug("Raw card data", { length: data.length, preview: data.substring(0, 30) + '...' });
       
       const parsedCard = cryptoService.parseCardUrl(data);
-      console.log("Parsed card:", parsedCard ? "success" : "failed"); 
-      
+      logger.info("Parsed card", { success: !!parsedCard, id: parsedCard?.id });
       if (!parsedCard?.id) {
         console.error("Invalid card ID in parsed data");
         return null;
