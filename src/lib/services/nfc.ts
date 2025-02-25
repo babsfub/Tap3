@@ -2,6 +2,7 @@
 import { browser } from '$app/environment';
 import { cryptoService } from './crypto.js';
 import { apiService } from './api.js';
+import { logger } from './logger.js';
 import type { CardMode, CardInfo } from '$lib/types.js';
 
 interface NFCWriteOptions {

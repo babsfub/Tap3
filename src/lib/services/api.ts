@@ -1,5 +1,6 @@
 // lib/services/api.ts
 import type { CardDesign } from '$lib/types.js';
+import { logger } from './logger.js';
 
 class ApiService {
   private baseUrl: string = 'https://api.tap3.me';
@@ -76,34 +77,41 @@ async getCardDesign(cardId: number): Promise<any> {
       .trim();
   }
 
-  async verifyCard(cardId: number, cardUrl: string): Promise<boolean> {
-    try {
-      // Récupérer l'URL stockée en base de données
-      const storedCard = await this.getCardById(cardId);
-      if (!storedCard || !storedCard.url) return false;
-      
-      // Extraire seulement la partie après le '#' des deux URLs
-      const extractHash = (url: string) => {
-        const hashIndex = url.indexOf('#');
-        return hashIndex >= 0 ? url.substring(hashIndex) : url;
-      };
-      
-      const storedHash = extractHash(storedCard.url);
-      const receivedHash = extractHash(cardUrl);
-      
-      console.log("Comparing card data:", { 
-        storedHash, 
-        receivedHash,
-        match: storedHash === receivedHash 
-      });
-      
-      // Comparer uniquement la partie hash
-      return storedHash === receivedHash;
-    } catch (error) {
-      console.error("Card verification error:", error);
+  // Dans api.js ou api.ts
+async verifyCard(cardId: number, cardUrl: string): Promise<boolean> {
+  try {
+    // Récupérer l'URL stockée en base de données
+    const storedCard = await this.getCardById(cardId);
+    if (!storedCard || !storedCard.url) {
+      logger.error("Card verification failed - no stored URL", { cardId });
       return false;
     }
+    
+    // Extraire seulement la partie après le '#' des deux URLs
+    const extractHash = (url: string) => {
+      const hashIndex = url.indexOf('#');
+      return hashIndex >= 0 ? url.substring(hashIndex) : url;
+    };
+    
+    const storedHash = extractHash(storedCard.url);
+    const receivedHash = extractHash(cardUrl);
+    
+    const match = storedHash === receivedHash;
+    
+    logger.info("Card verification result", { 
+      cardId,
+      storedDomain: storedCard.url.split('#')[0],
+      receivedDomain: cardUrl.split('#')[0],
+      match
+    });
+    
+    // Comparer uniquement la partie hash
+    return match;
+  } catch (error) {
+    logger.error("Card verification error", error);
+    return false;
   }
+}
 
   private async getCardById(cardId: number): Promise<{ url: string } | null> {
     try {
