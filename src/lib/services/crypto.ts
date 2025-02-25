@@ -1,28 +1,53 @@
 import CryptoJS from 'crypto-js'
 import type { Address } from 'viem'
 import type { CardInfo } from '$lib/types.js'
+import { debugService } from './DebugService.js'
 
 class CryptoService {
-  public parseCardUrl(hash: string): Partial<CardInfo> | null {
-    if (!hash) return null
-
-    try {
-      const [pub, priv, id] = hash.replace('#', '').split(':')
-      
-      if (!pub || !priv || !id) {
-        throw new Error('Missing card data')
-      }
-
-      return {
-        pub: `0x${this.base64ToHex(pub)}` as Address,
-        priv: CryptoJS.enc.Base64.parse(priv), 
-        id: this.base64ToBase10(id)
-      }
-    } catch (error) {
-      console.error('Failed to parse card URL:', error)
-      return null
+  // Exemple de modification pour cryptoService.parseCardUrl
+parseCardUrl(data: string): any {
+  try {
+    debugService.debug(`Parsing card data: ${data.substring(0, 20)}...`);
+    
+    // Extraire la partie après le # si c'est une URL complète
+    if (data.includes('#')) {
+      const hashPart = data.split('#')[1];
+      debugService.debug(`Found URL format, extracting hash part: ${hashPart.substring(0, 20)}...`);
+      data = hashPart;
     }
+    
+    // Diviser les parties (pub:priv:id)
+    const parts = data.split(':');
+    if (parts.length !== 3) {
+      debugService.error(`Invalid card data format, expected 3 parts but got ${parts.length}`);
+      return null;
+    }
+    
+    // Traiter l'ID explicitement
+    const pubKey = parts[0];
+    const privKey = parts[1];
+    const idRaw = parts[2];
+    
+    // Conversion explicite de l'ID
+    let id: number;
+    try {
+      id = this.base64ToBase10(idRaw);
+      debugService.debug(`Successfully converted ID from base64 to number: ${id}`);
+    } catch (e) {
+      debugService.error(`Failed to convert ID: ${idRaw}, error: ${e}`);
+      return null;
+    }
+    
+    return {
+      pub: pubKey.startsWith('0x') ? pubKey : `0x${pubKey}`,
+      priv: this.base64ToHex(privKey),
+      id: id
+    };
+  } catch (error) {
+    debugService.error(`Card parsing error: ${error}`);
+    return null;
   }
+}
 
   public validatePassword(password: string): boolean {
     return password.length >= 3

@@ -238,59 +238,82 @@ class NFCService {
     return new TextDecoder().decode(record.data);
   }
 
-  // Dans nfcService, méthode processCardData
-  // Correction dans la méthode processCardData
-private async processCardData(data: string): Promise<CardInfo | null> {
+  private async processCardData(data: string): Promise<CardInfo | null> {
     try {
       debugService.info("Processing card data...");
-      debugService.debug("Raw card data: " + data.substring(0, 30) + '...');
+      debugService.debug(`Raw data preview: ${data.substring(0, 30)}...`);
       
+      // Étape 1: Parsing des données
       const parsedCard = cryptoService.parseCardUrl(data);
-      debugService.info("Parsed card: " + (parsedCard ? "success" : "failed"));
       
-      if (!parsedCard?.id) {
-        debugService.error("Invalid card ID in parsed data");
+      // Logs détaillés pour déboguer le problème d'ID
+      if (!parsedCard) {
+        debugService.error("Card parsing failed completely");
         return null;
       }
       
-      debugService.info("Fetching design for card ID: " + parsedCard.id);
+      debugService.info(`Parsed card ID: ${parsedCard.id || 'MISSING'}, type: ${typeof parsedCard.id}`);
+      debugService.debug(`Parsed card data: pub=${!!parsedCard.pub}, priv=${!!parsedCard.priv}`);
       
-      // Utiliser Partial<CardInfo> pour indiquer que certains champs peuvent être manquants
+      // Vérification explicite de l'ID
+      if (!parsedCard.id) {
+        debugService.error("Invalid card ID (undefined or null)");
+        return null;
+      }
+      
+      if (typeof parsedCard.id !== 'number') {
+        debugService.warn(`Card ID is not a number, trying to convert from: ${typeof parsedCard.id}`);
+        // Tentative de conversion si l'ID n'est pas un nombre
+        const numericId = Number(parsedCard.id);
+        if (isNaN(numericId)) {
+          debugService.error(`Cannot convert card ID to number: ${parsedCard.id}`);
+          return null;
+        }
+        parsedCard.id = numericId;
+        debugService.info(`Converted card ID to number: ${parsedCard.id}`);
+      }
+      
+      debugService.info(`Fetching design for card ID: ${parsedCard.id}`);
+      
+      // Créer une version de base avec des valeurs par défaut
       const baseCardInfo: Partial<CardInfo> = {
-        css: "", // Style par défaut
-        model: 0, // Modèle par défaut
-        svg: "default" // SVG par défaut
+        css: "", 
+        model: 0,
+        svg: "default"
       };
       
       try {
-        // Récupérer le design et le style de manière individuelle avec gestion d'erreur
+        // Récupérer le design et le style
+        debugService.debug(`Making API call to get card design for ID: ${parsedCard.id}`);
         const design = await apiService.getCardDesign(parsedCard.id)
           .catch(err => {
-            debugService.error("Design fetch error: " + err);
-            return {}; // Objet vide en cas d'échec
+            debugService.error(`Design fetch error: ${err}`);
+            return {}; 
           });
         
+        debugService.debug(`Making API call to get card style for ID: ${parsedCard.id}`);
         const style = await apiService.getCardStyle(parsedCard.id)
           .catch(err => {
-            debugService.error("Style fetch error: " + err);
-            return { css: "", model: 0 }; // Valeurs par défaut
+            debugService.error(`Style fetch error: ${err}`);
+            return { css: "", model: 0 };
           });
         
-        // Fusionner tout en priorisant les données récupérées et en s'assurant que les champs obligatoires sont présents
+        // Log des résultats API
+        debugService.debug(`API returned: design=${!!design}, style=${!!style}`);
+        
+        // Fusionner les données
         const result = {
-          ...parsedCard, // Contient les champs obligatoires comme id
+          ...parsedCard,
           ...design,
           css: style?.css || baseCardInfo.css || "",
           model: style?.model || baseCardInfo.model || 0,
         };
         
-        debugService.info("Card processing complete");
-        debugService.debug("Card result: " + JSON.stringify(result));
+        debugService.info(`Card processing complete for ID: ${result.id}`);
         return result as CardInfo;
         
       } catch (apiError) {
-        debugService.warn("API error - using fallback data: " + apiError);
-        // Retourner parsedCard avec les valeurs par défaut pour s'assurer que tous les champs obligatoires sont présents
+        debugService.warn(`API error - using fallback data: ${apiError}`);
         return {
           ...parsedCard,
           css: baseCardInfo.css || "",
@@ -298,11 +321,10 @@ private async processCardData(data: string): Promise<CardInfo | null> {
           svg: baseCardInfo.svg || "default"
         } as CardInfo;
       }
-
     } catch (error) {
-      debugService.error('Card data processing failed: ' + error);
-      if (error instanceof Error) {
-        debugService.error('Error details: ' + error.message);
+      debugService.error(`Card data processing failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (error instanceof Error && error.stack) {
+        debugService.debug(`Error stack: ${error.stack}`);
       }
       return null;
     }
