@@ -2,7 +2,7 @@
 import { browser } from '$app/environment';
 import { cryptoService } from './crypto.js';
 import { apiService } from './api.js';
-import type { CardMode,CardInfo } from '$lib/types.js';
+import type { CardMode, CardInfo } from '$lib/types.js';
 
 interface NFCWriteOptions {
   privateKey: string;
@@ -27,10 +27,35 @@ class NFCService {
     if (!browser || !await this.isSupported()) {
       throw new Error('NFC not supported on this device');
     }
-
+  
     try {
       const permission = await navigator.permissions.query({ name: 'nfc' as PermissionName });
-      return permission.state;
+      
+      if (permission.state === 'granted') {
+        return permission.state;
+      }
+      
+      try {
+        const tempReader = new NDEFReader();
+        const controller = new AbortController();
+        const scanPromise = tempReader.scan({ signal: controller.signal });
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        controller.abort();
+        
+        try {
+          await scanPromise;
+        } catch (e) {
+          // Ignorer l'erreur d'annulation attendue
+        }
+        
+        const newPermission = await navigator.permissions.query({ name: 'nfc' as PermissionName });
+        return newPermission.state;
+      } catch (scanError) {
+        console.error('Error during permission request scan:', scanError);
+        return permission.state; 
+      }
     } catch (error) {
       console.error('Failed to query NFC permission:', error);
       throw new Error('Failed to access NFC permissions');
@@ -126,29 +151,29 @@ class NFCService {
   }
 
   async stopReading(): Promise<void> {
-      try {
-        if (this.reader && this.isReading) {
-          // Tentative de nettoyage explicite des événements si possible
-          if (this.abortController) {
-            this.abortController.abort();
-            this.abortController = null;
-          }
-          
-          // Force la réinitialisation complète
-          this.isReading = false;
-          this.reader = null;
+    try {
+      if (this.reader && this.isReading) {
+        // Tentative de nettoyage explicite des événements si possible
+        if (this.abortController) {
+          this.abortController.abort();
+          this.abortController = null;
         }
         
-        // Délai pour s'assurer que tout est bien nettoyé
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } catch (error) {
-        console.error("Error stopping NFC reader:", error);
-        // Réinitialisation forcée en cas d'erreur
+        // Force la réinitialisation complète
         this.isReading = false;
         this.reader = null;
-        this.abortController = null;
       }
+      
+      // Délai pour s'assurer que tout est bien nettoyé
+      await new Promise(resolve => setTimeout(resolve, 200));
+    } catch (error) {
+      console.error("Error stopping NFC reader:", error);
+      // Réinitialisation forcée en cas d'erreur
+      this.isReading = false;
+      this.reader = null;
+      this.abortController = null;
     }
+  }
 
   async writeCard(cardInfo: CardInfo, options: NFCWriteOptions): Promise<void> {
     if (!browser || !await this.isSupported()) {
@@ -181,7 +206,6 @@ class NFCService {
         }]
       };
 
-      
       const writer = new NDEFReader();
       await writer.write(messageInit, {
         overwrite: true
@@ -192,7 +216,6 @@ class NFCService {
       throw new Error(errorMessage);
     }
   }
-
   
   private cleanupReader(): void {
     if (this.abortController) {
@@ -215,29 +238,29 @@ class NFCService {
   }
 
   // Dans nfcService, méthode processCardData
-private async processCardData(data: string): Promise<CardInfo | null> {
-  try {
-    const parsedCard = cryptoService.parseCardUrl(data);
-    if (!parsedCard?.id) return null;
+  private async processCardData(data: string): Promise<CardInfo | null> {
+    try {
+      const parsedCard = cryptoService.parseCardUrl(data);
+      if (!parsedCard?.id) return null;
 
-    // Récupérer le design et le style de la carte
-    const [design, style] = await Promise.all([
-      apiService.getCardDesign(parsedCard.id),
-      apiService.getCardStyle(parsedCard.id)
-    ]);
+      // Récupérer le design et le style de la carte
+      const [design, style] = await Promise.all([
+        apiService.getCardDesign(parsedCard.id),
+        apiService.getCardStyle(parsedCard.id)
+      ]);
 
-    return {
-      ...parsedCard,
-      ...design,
-      css: style.css,
-      model: style.model
-    } as CardInfo;
+      return {
+        ...parsedCard,
+        ...design,
+        css: style.css,
+        model: style.model
+      } as CardInfo;
 
-  } catch (error) {
-    console.error('Card data processing failed:', error);
-    return null;
+    } catch (error) {
+      console.error('Card data processing failed:', error);
+      return null;
+    }
   }
-}
 }
 
 export const nfcService = new NFCService();
