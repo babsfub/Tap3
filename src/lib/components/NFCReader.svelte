@@ -11,10 +11,17 @@
     onSuccess?: () => void;
     onClose?: () => void;  
     mode?: CardMode;
+    updateCardState?: boolean; // Nouvelle prop pour contrôler la mise à jour du state
   }>();
     
   const cardState = useCardState();
   
+  // Valeur par défaut pour updateCardState (true pour le mode read, false pour le mode payment)
+  let shouldUpdateCardState = $derived(
+    props.updateCardState !== undefined ? 
+    props.updateCardState : 
+    props.mode !== 'payment'
+  );
   
   let isSupported = $state(false);
   let isReading = $state(false);
@@ -58,7 +65,11 @@
             return;
           }
           status = 'Card read successfully';
-          cardState.setCard(cardInfo);
+          
+          if (shouldUpdateCardState) {
+            cardState.setCard(cardInfo);
+          }
+          
           props.onRead?.(cardInfo);
           props.onSuccess?.();
         },

@@ -1,4 +1,4 @@
-<!-- src/lib/components/Payment.svelte -->
+<!-- lib/components/Payment.svelte -->
 <script lang="ts">
   import { isAddress } from 'viem';
   import type { Address } from 'viem';
@@ -36,50 +36,51 @@
 
   // Gestion de la lecture NFC du destinataire
   async function handleRecipientCardRead(cardInfo: CardInfo) {
-  try {
-    // Arrêter la lecture immédiatement et complètement
-    await nfcService.stopReading().catch(() => {/* ignorer les erreurs */});
-    
-    if (cardInfo.pub) {
-      // Vérifier que ce n'est pas la même carte
-      if (currentCard?.pub && cardInfo.pub === currentCard.pub) {
-        error = "Cannot send to the same card";
-        return;
+    try {
+      // Arrêter la lecture immédiatement et complètement
+      await nfcService.stopReading().catch(() => {/* ignorer les erreurs */});
+      
+      if (cardInfo.pub) {
+        // Vérifier que ce n'est pas la même carte
+        if (currentCard?.pub && cardInfo.pub === currentCard.pub) {
+          error = "Cannot send to the same card";
+          return;
+        }
+        
+        // Mettre à jour l'adresse et cacher le lecteur NFC
+        address = cardInfo.pub;
+        // Important: attendez un peu avant de cacher le lecteur NFC
+        await new Promise(resolve => setTimeout(resolve, 100));
+        showNFCReader = false;
+        error = null; // Effacer les erreurs précédentes
+      } else {
+        error = 'Invalid recipient card';
       }
-      
-      address = cardInfo.pub;
-      
-      await new Promise(resolve => setTimeout(resolve, 100));
-      showNFCReader = false;
-      error = null; 
-    } else {
-      error = 'Invalid recipient card';
+    } catch (err) {
+      console.error("Error handling recipient card:", err);
+      error = err instanceof Error ? err.message : 'Error processing recipient card';
     }
-  } catch (err) {
-    console.error("Error handling recipient card:", err);
-    error = err instanceof Error ? err.message : 'Error processing recipient card';
   }
-}
 
   async function startNFCReading(e: Event) {
-  // Empêcher tout comportement par défaut
-  if (e && typeof e.preventDefault === 'function') e.preventDefault();
-  
-  error = null; // Effacer les erreurs précédentes
-  
-  try {
-    // S'assurer que le lecteur est arrêté avant de commencer
-    await nfcService.stopReading().catch(() => {/* ignorer les erreurs */});
+    // Empêcher tout comportement par défaut
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     
-    // Un délai plus long pour s'assurer que tout est bien nettoyé
-    await new Promise(resolve => setTimeout(resolve, 400));
+    error = null; // Effacer les erreurs précédentes
     
-    // Après le nettoyage, montrer le lecteur NFC
-    showNFCReader = true;
-  } catch (err) {
-    error = err instanceof Error ? err.message : 'Failed to start NFC reader';
+    try {
+      // S'assurer que le lecteur est arrêté avant de commencer
+      await nfcService.stopReading().catch(() => {/* ignorer les erreurs */});
+      
+      // Un délai plus long pour s'assurer que tout est bien nettoyé
+      await new Promise(resolve => setTimeout(resolve, 400));
+      
+      // Après le nettoyage, montrer le lecteur NFC
+      showNFCReader = true;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to start NFC reader';
+    }
   }
-}
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
@@ -94,6 +95,7 @@
     if (!pendingTo || !pendingAmount || !currentCard) return;
     
     try {
+      // Déverrouiller la carte uniquement ici - c'est le moment approprié
       cardState.unlockCard(); 
       await onSubmit(pendingTo, pendingAmount, pin);
       showPin = false;
@@ -138,6 +140,7 @@
           showNFCReader = false;
           error = null;
         }}
+        updateCardState={false}
       />
     {:else}
       <form onsubmit={handleSubmit} class="space-y-4">
@@ -215,8 +218,7 @@
   </div>
 </div>
 
-{#if showPin}
-  
+{#if showPin}  
    <PinModal
       title="Confirm Payment"
       onSubmit={(pin) => handlePinSubmit(pin)}
@@ -224,6 +226,5 @@
         showPin = false;
         error = null;
       }}
-    />
-  
+    />  
 {/if}
