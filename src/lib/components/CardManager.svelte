@@ -7,9 +7,9 @@
   import PaymentModal from './Payment.svelte';
   import PinModal from './modals/PinModal.svelte';
   import type { CardInfo } from '$lib/types.js';
-
-  const cardState = useCardState();
-  const paymentState = usePaymentState();
+let { cardState, paymentState } = $props<{ cardState: ReturnType<typeof useCardState>, paymentState: ReturnType<typeof usePaymentState>}>();
+  
+ 
 
   let currentCard = $derived(cardState.getState().currentCard);
   let isCardLocked = $derived(cardState.getState().isLocked);
@@ -155,9 +155,9 @@
 {#if showPaymentModal && currentCard}
   <PaymentModal
     onClose={() => showPaymentModal = false}
-    onSubmit={async (amount: number) => {
+    onSubmit={async (to: `0x${string}`, amount: string, pin: string) => {
       try {
-        await paymentState.sendTransaction(currentCard.pub, amount.toString(), pin);
+        await paymentState.sendTransaction(to, amount, pin);
         handleSuccess();
       } catch (err) {
         handleError(err instanceof Error ? err.message : 'Payment failed');

@@ -37,18 +37,18 @@
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to initialize NFC';
       nfcStatus = 'error';
-      onError(error); // Utilisation directe de onError déstructuré
+      onError(error); 
     }
   }
 
   async function writeToCard() {
     try {
       nfcStatus = 'writing';
-      await nfcService.writeCard(cardInfo, {  // Utilisation directe de cardInfo
-        pin,  // Utilisation directe de pin
+      await nfcService.writeCard(cardInfo, {  
+        pin,  
         privateKey: cardInfo.key || ''
       });
-      onSuccess();  // Utilisation directe de onSuccess
+      onSuccess();  
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to write to card';
       nfcStatus = 'error';
