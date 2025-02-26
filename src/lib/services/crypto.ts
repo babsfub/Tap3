@@ -1,4 +1,4 @@
-// lib/services/crypto.js - Version améliorée pour la compatibilité SvelteKit 2.x
+// lib/services/crypto.ts
 import CryptoJS from 'crypto-js';
 import type { Address } from 'viem';
 import { AddressUtils } from '../utils/AddressUtils.js';
@@ -93,8 +93,12 @@ class CryptoService {
    * Valide un mot de passe
    */
   validatePassword(password: string): boolean {
-    // Minimum 3 caractères pour le mot de passe
-    return typeof password === 'string' && password.length >= 3;
+    // Vérification plus stricte
+    if (typeof password !== 'string' || password.length < 3) {
+      debugService.warn(`Validation de mot de passe échouée - ${typeof password}, longueur: ${password?.length || 0}`);
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -134,6 +138,7 @@ class CryptoService {
    */
   decryptPrivateKey(encryptedKey: CryptoJS.lib.WordArray | string, password: string): string {
     if (!this.validatePassword(password)) {
+      debugService.error('Mot de passe invalide pour le déchiffrement');
       throw new Error('Mot de passe invalide');
     }
   
@@ -146,24 +151,34 @@ class CryptoService {
         // Vérifier si c'est bien un WordArray avant conversion
         if (encryptedKey && typeof encryptedKey.toString === 'function') {
           encryptedStr = CryptoJS.enc.Base64.stringify(encryptedKey);
+          debugService.debug('Conversion réussie de WordArray en chaîne Base64');
         } else {
+          debugService.error('Format de clé chiffrée invalide');
           throw new Error('Format de clé chiffrée invalide');
         }
       }
       
       // Déchiffrement
-      const decrypted = CryptoJS.AES.decrypt(encryptedStr, password).toString(CryptoJS.enc.Hex);
+      debugService.debug('Tentative de déchiffrement de la clé...');
+      const decrypted = CryptoJS.AES.decrypt(encryptedStr, password);
+      
+      // Convertir en hex string
+      const hexString = decrypted.toString(CryptoJS.enc.Hex);
       
       // Validation du résultat
-      if (!decrypted || decrypted.length !== 64) {
-        throw new Error('Échec de déchiffrement');
+      if (!hexString || hexString.length !== 64) {
+        debugService.error(`Déchiffrement échoué ou a produit une clé invalide (longueur: ${hexString.length})`);
+        throw new Error('Échec de déchiffrement - PIN incorrect');
       }
   
-      // Ajouter le préfixe 0x pour la compatibilité avec les bibliothèques Ethereum
-      return `0x${decrypted}`;
+      // S'assurer que le préfixe 0x est présent (requis par viem)
+      const prefixedKey = hexString.startsWith('0x') ? hexString : `0x${hexString}`;
+      debugService.debug('Déchiffrement de la clé privée réussi');
+      
+      return prefixedKey;
     } catch (error) {
-      debugService.error(`Erreur de déchiffrement: ${error}`);
-      throw new Error('Échec de déchiffrement');
+      debugService.error(`Erreur de déchiffrement: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error('Échec de déchiffrement - PIN incorrect');
     }
   }
 

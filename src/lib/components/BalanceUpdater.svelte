@@ -10,7 +10,7 @@
   let ACTIVE_INSTANCE: string | null = null;
 
   // Interval configurations
-  const { updateInterval = 12 } = $props();
+  const { updateInterval = 40 } = $props();
   
   // Component state
   let balanceIntervalId: number | undefined;

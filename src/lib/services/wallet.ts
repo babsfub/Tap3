@@ -1,4 +1,4 @@
-// lib/services/wallet.ts avec corrections de typage
+// lib/services/wallet.ts
 import { Core } from "@walletconnect/core"
 import { WalletKit, type WalletKitTypes } from "@reown/walletkit"
 import { 
@@ -22,8 +22,8 @@ import { debugService } from './DebugService.js'
 interface EmitEventParams {
   chainId: string;
   event: {
-    type: string;
-    data: Record<string, unknown>;
+    name: string;
+    data: any;
   };
 }
 
@@ -34,41 +34,107 @@ class WalletService {
   private walletClient: WalletClient | null = null
   private currentCard: (CardInfo & { key?: string }) | null = null
   private account: Account | null = null
-  private reader: NDEFReader | null = null;
+  private isInitializing = false
+  private initPromise: Promise<boolean> | null = null
   
   constructor() {
     this.publicClient = createPublicClient({
       chain: polygon,
-      transport: http()
+      transport: http('https://polygon-rpc.com')  // Spécifier une URL RPC fiable
     })
     debugService.info('WalletService: Initialized with Polygon network');
   }
 
-  async initialize() {
+  /**
+   * Initialise le service de wallet avec gestion robuste des erreurs
+   */
+  async initialize(): Promise<boolean> {
+    // Éviter les initialisations multiples simultanées
+    if (this.isInitializing) {
+      debugService.debug('WalletService: Already initializing, returning existing promise');
+      return this.initPromise as Promise<boolean>;
+    }
+    
+    // Si déjà initialisé, retourner immédiatement
+    if (this.walletkit) {
+      debugService.debug('WalletService: Already initialized');
+      return true;
+    }
+    
+    this.isInitializing = true;
+    this.initPromise = this._initialize();
+    
+    try {
+      const result = await this.initPromise;
+      return result;
+    } finally {
+      this.isInitializing = false;
+    }
+  }
+  
+  /**
+   * Implémentation interne de l'initialisation avec gestion améliorée des erreurs
+   */
+  private async _initialize(): Promise<boolean> {
     try {
       debugService.info('WalletService: Starting initialization...');
       
-      this.core = new Core({
-        projectId: import.meta.env.VITE_REOWN_ID
-      })
-      debugService.debug(`WalletService: Core initialized with project ID: ${import.meta.env.VITE_REOWN_ID.substring(0,4)}...`);
+      // Vérification des variables d'environnement
+      const projectId = import.meta.env.VITE_REOWN_ID;
+      if (!projectId) {
+        throw new Error('VITE_REOWN_ID not defined in environment variables');
+      }
+      
+      // Initialiser Core avec gestion des erreurs
+      try {
+        this.core = new Core({
+          projectId: projectId
+        });
+        debugService.debug(`WalletService: Core initialized with project ID: ${projectId.substring(0,4)}...`);
+      } catch (coreError) {
+        debugService.error(`WalletService: Core initialization failed: ${coreError}`);
+        throw new Error(`WalletConnect Core initialization failed: ${coreError}`);
+      }
 
-      this.walletkit = await WalletKit.init({
-        core: this.core,
-        metadata: {
-          name: "Tap3 Card",
-          description: "Web3 Card Management",
-          url: "https://tap3.me",
-          icons: []
+      // Initialiser WalletKit avec timeout
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('WalletKit initialization timed out')), 15000);
+        });
+        
+        const kitPromise = WalletKit.init({
+          core: this.core,
+          metadata: {
+            name: "Tap3 Card",
+            description: "Web3 Card Management",
+            url: "https://tap3.me",
+            icons: []
+          }
+        });
+        
+        this.walletkit = await Promise.race([kitPromise, timeoutPromise]);
+        
+        if (!this.walletkit) {
+          throw new Error('WalletKit initialization returned null or undefined');
         }
-      })
-      debugService.info('WalletService: WalletKit initialized successfully');
+        
+        debugService.info('WalletService: WalletKit initialized successfully');
+      } catch (kitError) {
+        debugService.error(`WalletService: WalletKit initialization failed: ${kitError}`);
+        throw new Error(`WalletKit initialization failed: ${kitError}`);
+      }
 
-      this.setupEventListeners()
+      // Configurer les écouteurs d'événements
+      this.setupEventListeners();
       debugService.info('WalletService: Event listeners set up');
+      
+      return true;
     } catch (error) {
-      debugService.error(`WalletService: Failed to initialize: ${error instanceof Error ? error.message : String(error)}`);
-      throw error
+      debugService.error(`WalletService: Initialization failed: ${error instanceof Error ? error.message : String(error)}`);
+      // Réinitialiser les variables pour permettre une nouvelle tentative
+      this.core = null;
+      this.walletkit = null;
+      throw error;
     }
   }
 
@@ -243,10 +309,83 @@ class WalletService {
     }
   }
 
+  /**
+   * Obtient l'adresse du compte actuellement connecté
+   * Avec tentative de récupération en cas d'échec
+   * @param options Options supplémentaires
+   * @returns L'adresse du compte ou null si non disponible
+   */
+  getAddress(options: { showErrors?: boolean, throwIfNotConnected?: boolean } = {}): `0x${string}` | null {
+    // Options par défaut
+    const { 
+      showErrors = true,
+      throwIfNotConnected = false
+    } = options;
+
+    // Si nous avons déjà un compte avec une adresse, la retourner
+    if (this.account) {
+      return this.account.address;
+    }
+    
+    // Log d'avertissement si demandé
+    if (showErrors) {
+      debugService.warn(`WalletService: Tentative d'obtenir l'adresse mais aucun compte n'est connecté`);
+    }
+
+    // Si nous avons un currentCard mais pas d'account, c'est probablement un problème de synchronisation
+    if (this.currentCard && this.currentCard.key) {
+      try {
+        // Tentative de récupération: recréer le compte à partir de la clé privée stockée
+        debugService.info(`WalletService: Tentative de récupération - recréation du compte à partir de la clé privée`);
+        this.account = privateKeyToAccount(this.currentCard.key as `0x${string}`);
+        
+        // Recréer également le client wallet si nécessaire
+        if (!this.walletClient && this.account) {
+          this.walletClient = createWalletClient({
+            account: this.account,
+            chain: polygon,
+            transport: http('https://polygon-rpc.com')
+          });
+        }
+        
+        if (this.account) {
+          debugService.info(`WalletService: Récupération réussie, adresse: ${this.account.address}`);
+          return this.account.address;
+        }
+      } catch (e) {
+        if (showErrors) {
+          debugService.error(`WalletService: Échec de la récupération du compte: ${e}`);
+        }
+      }
+    }
+    
+    // Si la tentative de récupération a échoué et que nous voulons lancer une erreur
+    if (throwIfNotConnected) {
+      throw new Error('Aucun compte connecté - veuillez déverrouiller votre carte');
+    }
+    
+    // En dernier recours, retourner null
+    return null;
+  }
+
+  /**
+   * Connecte une carte avec un mot de passe avec gestion améliorée des erreurs
+   */
   async connectCard(cardInfo: CardInfo, password: string): Promise<boolean> {
     try {
       debugService.info(`WalletService: 🔑 Connecting card #${cardInfo.id}...`);
       
+      // S'assurer que WalletKit est initialisé
+      if (!this.walletkit) {
+        debugService.debug('WalletService: WalletKit not initialized, initializing now...');
+        const initialized = await this.initialize();
+        if (!initialized) {
+          debugService.error('WalletService: Failed to initialize WalletKit');
+          return false;
+        }
+      }
+      
+      // Déchiffrer la clé privée
       let decryptedKey;
       try {
         debugService.debug(`WalletService: Decrypting private key...`);
@@ -255,51 +394,54 @@ class WalletService {
           password
         );
         debugService.debug(`WalletService: Private key decrypted successfully`);
+        
+        // Vérification du format de la clé déchiffrée
+        if (!decryptedKey || 
+            (typeof decryptedKey === 'string' && !decryptedKey.startsWith('0x')) ||
+            (typeof decryptedKey === 'string' && decryptedKey.length !== 66)) {
+          debugService.error(`WalletService: Invalid decrypted key format: ${typeof decryptedKey}`);
+          return false;
+        }
       } catch (decryptError) {
         debugService.error(`WalletService: ❌ Failed to decrypt private key: ${decryptError instanceof Error ? decryptError.message : String(decryptError)}`);
-        return false;
+        throw new Error(`Échec de déchiffrement - PIN incorrect: ${decryptError instanceof Error ? decryptError.message : String(decryptError)}`);
       }
       
-      // S'assurer que walletkit est initialisé
-      if (!this.walletkit) {
-        debugService.debug(`WalletService: WalletKit not initialized, doing it now...`);
-        await this.initialize();
-      }
-
-      // Récupérer les sessions actives
-      const sessions = this.walletkit?.getActiveSessions() || {};
-      
+      // Créer un compte à partir de la clé privée
       try {
         debugService.debug(`WalletService: Creating account from private key...`);
         this.account = privateKeyToAccount(decryptedKey as `0x${string}`);
         debugService.info(`WalletService: Account created with address: ${this.account.address}`);
       } catch (accountError) {
         debugService.error(`WalletService: ❌ Failed to create account: ${accountError instanceof Error ? accountError.message : String(accountError)}`);
-        return false;
+        throw new Error(`Échec de création du compte: ${accountError instanceof Error ? accountError.message : String(accountError)}`);
       }
       
+      // Créer le client wallet
       try {
         debugService.debug(`WalletService: Creating wallet client...`);
         this.walletClient = createWalletClient({
           account: this.account,
           chain: polygon,
-          transport: http()
+          transport: http('https://polygon-rpc.com')  // Spécifier une URL RPC fiable
         });
         debugService.debug(`WalletService: Wallet client created successfully`);
       } catch (clientError) {
         debugService.error(`WalletService: ❌ Failed to create wallet client: ${clientError instanceof Error ? clientError.message : String(clientError)}`);
         this.account = null;
-        return false;
+        throw new Error(`Échec de création du client wallet: ${clientError instanceof Error ? clientError.message : String(clientError)}`);
       }
 
+      // Enregistrer les informations de la carte
       this.currentCard = {
         ...cardInfo,
         key: decryptedKey
       };
 
-      // Émettre l'événement seulement s'il y a des sessions actives
-      if (this.walletkit && Object.keys(sessions).length > 0) {
-        try {
+      // Émettre l'événement de changement de compte si des sessions actives existent
+      try {
+        const sessions = this.walletkit?.getActiveSessions() || {};
+        if (this.walletkit && Object.keys(sessions).length > 0) {
           // Utiliser le topic de la première session active
           const sessionTopic = Object.keys(sessions)[0];
           await this.walletkit.emitSessionEvent({
@@ -311,18 +453,39 @@ class WalletService {
             chainId: "eip155:137"
           });
           debugService.debug(`WalletService: Session event emitted`);
-        } catch (eventError) {
-          debugService.warn(`WalletService: Failed to emit session event: ${eventError}`);
-          // Non fatal, on continue
         }
+      } catch (eventError) {
+        debugService.warn(`WalletService: Failed to emit session event: ${eventError}`);
+        // Non fatal, on continue
       }
 
       debugService.info(`WalletService: ✅ Card connected successfully!`);
       return true;
     } catch (error) {
       debugService.error(`WalletService: ❌ Card connection failed: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
+      throw error;
     }
+  }
+
+  /**
+   * Vérifie si le wallet est correctement connecté et prêt pour les transactions
+   * @returns true si le wallet est connecté, false sinon
+   */
+  isConnected(): boolean {
+    // Vérification plus robuste que simplement vérifier account et walletClient
+    const isAccountReady = !!this.account;
+    const isWalletClientReady = !!this.walletClient;
+    const isCardPresent = !!this.currentCard;
+    const isPrivateKeyAvailable = !!(this.currentCard?.key);
+    
+    const isFullyConnected = isAccountReady && isWalletClientReady;
+    
+    // Si nous avons une incohérence, la signaler
+    if (isCardPresent && isPrivateKeyAvailable && !isFullyConnected) {
+      debugService.warn(`WalletService: État incohérent détecté - Carte présente avec clé, mais compte/client non initialisé`);
+    }
+    
+    return isFullyConnected;
   }
 
   async disconnect() {
@@ -350,18 +513,6 @@ class WalletService {
       throw error;
     }
   }
-  
-  getAddress(): `0x${string}` | null {
-    if (!this.account) {
-      debugService.warn(`WalletService: Tried to get address, but no account is connected`);
-      return null;
-    }
-    return this.account.address;
-  }
-
-  isConnected(): boolean {
-    return !!this.account && !!this.walletClient;
-  }
 
   private async emitTransactionEvent({chainId, event}: EmitEventParams): Promise<void> {
     if (!this.walletkit) return;
@@ -376,12 +527,9 @@ class WalletService {
             await this.walletkit?.emitSessionEvent({
               topic: session.topic,
               chainId,
-              event: {
-                name: event.type,
-                data: event.data
-              }
+              event
             });
-            debugService.debug(`WalletService: Event ${event.type} emitted for session ${session.topic}`);
+            debugService.debug(`WalletService: Event ${event.name} emitted for session ${session.topic}`);
           } catch (error) {
             debugService.error(`WalletService: Failed to emit event for session ${session.topic}: ${error}`);
           }
@@ -404,7 +552,7 @@ class WalletService {
       await this.emitTransactionEvent({
         chainId: `eip155:${polygon.id}`,
         event: {
-          type: 'transaction_updated',
+          name: 'transaction_updated',
           data: {
             hash: transactionData.hash,
             status: transactionData.status,

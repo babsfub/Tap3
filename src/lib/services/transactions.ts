@@ -1,4 +1,4 @@
-// lib/services/transactions.ts avec corrections de typage
+// lib/services/transactions.ts
 import { parseUnits, formatUnits, type Hash } from 'viem'
 import type { TransactionRequest } from '../types.js'
 import { walletService } from './wallet.js'
@@ -62,24 +62,38 @@ class TransactionService {
 
       // 3. Vérification du solde
       try {
-        const address = walletService.getAddress()
-        if (!address) {
-          debugService.error(`TransactionService: Impossible d'obtenir l'adresse du portefeuille`)
-          throw new Error('Portefeuille non initialisé')
+        // Vérifier explicitement que le wallet est connecté avant de demander l'adresse
+        if (!walletService.isConnected()) {
+          debugService.warn(`TransactionService: Le portefeuille n'est pas connecté pour vérifier le solde`);
+          
+          // Si nous continuons malgré tout, nous devons vérifier l'adresse de manière sécurisée
+          const address = walletService.getAddress({ throwIfNotConnected: false });
+          if (!address) {
+            debugService.error(`TransactionService: Impossible d'obtenir l'adresse du portefeuille`);
+            throw new Error('Portefeuille non connecté ou adresse non disponible');
+          }
         }
         
-        const balance = await walletService.getBalance(address)
-        debugService.info(`TransactionService: Solde actuel: ${balance.formatted} MATIC`)
+        // Maintenant, essayons d'obtenir l'adresse
+        const address = walletService.getAddress({ throwIfNotConnected: false });
+        if (!address) {
+          debugService.error(`TransactionService: Impossible d'obtenir l'adresse du portefeuille`);
+          throw new Error('Adresse du portefeuille non disponible');
+        }
+        
+        // Suite de la vérification du solde avec l'adresse maintenant disponible
+        const balance = await walletService.getBalance(address);
+        debugService.info(`TransactionService: Solde actuel: ${balance.formatted} MATIC pour l'adresse ${address}`);
         
         // Calcul du coût total (montant + frais de gaz estimés)
-        const gasLimit = BigInt(request.gasLimit)
-        const gasPrice = BigInt(request.gasPrice)
-        const gasCost = gasLimit * gasPrice
-        const gasCostMatic = formatUnits(gasCost, 18)
+        const gasLimit = BigInt(request.gasLimit);
+        const gasPrice = BigInt(request.gasPrice);
+        const gasCost = gasLimit * gasPrice;
+        const gasCostMatic = formatUnits(gasCost, 18);
         
-        const txValue = parseUnits(request.value, 18)
-        const totalCost = txValue + gasCost
-        const totalCostMatic = formatUnits(totalCost, 18)
+        const txValue = parseUnits(request.value, 18);
+        const totalCost = txValue + gasCost;
+        const totalCostMatic = formatUnits(totalCost, 18);
         
         // Logs détaillés pour le débogage
         debugService.info(`TransactionService: Analyse des coûts:
@@ -87,19 +101,19 @@ class TransactionService {
           - Coût de gaz estimé: ${gasCostMatic} MATIC (${gasLimit} * ${formatUnits(gasPrice, 9)} Gwei)
           - Coût total estimé: ${totalCostMatic} MATIC
           - Solde disponible: ${balance.formatted} MATIC
-        `)
+        `);
         
         // Vérifier si le solde est suffisant
         if (balance.value < totalCost) {
-          const deficit = formatUnits(totalCost - balance.value, 18)
-          debugService.error(`TransactionService: ❌ Solde insuffisant! Manque ${deficit} MATIC`)
-          throw new Error(`Solde insuffisant pour cette transaction (${balance.formatted} MATIC disponible, ${totalCostMatic} MATIC requis)`)
+          const deficit = formatUnits(totalCost - balance.value, 18);
+          debugService.error(`TransactionService: ❌ Solde insuffisant! Manque ${deficit} MATIC`);
+          throw new Error(`Solde insuffisant pour cette transaction (${balance.formatted} MATIC disponible, ${totalCostMatic} MATIC requis)`);
         } else {
-          debugService.info(`TransactionService: ✅ Solde suffisant pour la transaction`)
+          debugService.info(`TransactionService: ✅ Solde suffisant pour la transaction`);
         }
       } catch (balanceError: unknown) {
-        // Typage explicite de balanceError comme unknown
-        if (balanceError instanceof Error && balanceError.message?.includes('Solde insuffisant')) {
+        // Traitement sécurisé des erreurs avec typage explicite
+        if (balanceError instanceof Error && balanceError.message.includes('Solde insuffisant')) {
           // Réutiliser le message d'erreur formaté
           throw balanceError;
         }

@@ -1,4 +1,4 @@
-// lib/stores/card.ts 
+// lib/stores/card.ts (version corrigée)
 import { setContext, getContext } from 'svelte';
 import { formatUnits } from 'viem';
 import type { Address } from 'viem';
@@ -6,7 +6,6 @@ import type { CardInfo } from '$lib/types.js';
 import { walletService } from '$lib/services/wallet.js';
 import { debugService } from '$lib/services/DebugService.js';
 import { browser } from '$app/environment';
-// Use the cryptoService instead of direct CryptoJS
 import { cryptoService } from '$lib/services/crypto.js';
 import { AddressUtils } from '$lib/utils/AddressUtils.js';
 
@@ -213,23 +212,51 @@ function createCardState(initialState: Partial<CardState> = {}) {
   }
 
   // Unlock card (after PIN verification)
-  function unlockCard(): void {
-    if (state.currentCard) {
-      debugService.info(`Unlocking card ${state.currentCard.id}`);
-      state.isLocked = false;
-      state.lastUpdated = Date.now();
-      notifySubscribers();
-      
-      // Try to save but don't fail if it doesn't work
-      try {
-        saveToStorage();
-      } catch (e) {
-        // Log and continue
-        debugService.warn(`Non-fatal error saving unlock state: ${e}`);
-      }
-    } else {
-      debugService.warn('Attempted to unlock card but no card is set');
+  // IMPORTANT : CORRECTION POUR LA SYNCHRONISATION WALLET/CARTE
+  async function unlockCard(pin?: string): Promise<boolean> {
+    debugService.info(`Unlocking card: starting process`);
+    
+    if (!state.currentCard) {
+      debugService.error(`Cannot unlock card: no card set`);
+      return false;
     }
+    
+    // Si un PIN est fourni, tenter de connecter via le wallet service
+    if (pin && state.currentCard) {
+      try {
+        debugService.info(`Connecting card with provided PIN...`);
+        // Initialiser le wallet si non initialisé
+        if (!walletService.isConnected()) {
+          await walletService.initialize();
+        }
+        
+        // Tenter la connexion avec PIN
+        const connected = await walletService.connectCard(state.currentCard, pin);
+        if (!connected) {
+          debugService.error(`Failed to connect card with provided PIN`);
+          return false;
+        }
+        debugService.info(`Card connected successfully with PIN`);
+      } catch (error) {
+        debugService.error(`Error connecting card with PIN: ${error}`);
+        return false;
+      }
+    }
+    
+    // Vérifier que le wallet est bien connecté maintenant
+    if (!walletService.isConnected()) {
+      debugService.warn(`Unlocking card state but wallet is not connected - UI only unlock`);
+    } else {
+      debugService.info(`Wallet confirmed connected, address: ${walletService.getAddress()}`);
+    }
+    
+    // MAJ de l'état local
+    state.isLocked = false;
+    state.lastUpdated = Date.now();
+    notifySubscribers();
+    
+    debugService.info(`Card unlocked successfully - state updated`);
+    return true;
   }
 
   // Lock card
@@ -248,6 +275,13 @@ function createCardState(initialState: Partial<CardState> = {}) {
     state.lastUpdated = Date.now();
     notifySubscribers();
     
+    // Disconnect wallet service
+    try {
+      void walletService.disconnect();
+    } catch (e) {
+      debugService.warn(`Error disconnecting wallet: ${e}`);
+    }
+    
     // Try to save but don't fail if it doesn't work
     try {
       saveToStorage();
@@ -265,6 +299,13 @@ function createCardState(initialState: Partial<CardState> = {}) {
     state.isLocked = true;
     state.error = null;
     state.lastUpdated = Date.now();
+    
+    // Disconnect wallet if needed
+    try {
+      void walletService.disconnect();
+    } catch (e) {
+      debugService.warn(`Error disconnecting wallet: ${e}`);
+    }
     
     notifySubscribers();
     
@@ -354,7 +395,7 @@ function createCardState(initialState: Partial<CardState> = {}) {
     
     // Actions
     setCard,
-    unlockCard,
+    unlockCard, // Now returns a Promise<boolean>
     lockCard,
     clearCard,
     updateBalance,

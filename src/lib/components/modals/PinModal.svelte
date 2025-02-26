@@ -1,6 +1,7 @@
-<!-- lib/components/modals/PinModal.svelte -->
+<!-- lib/components/modals/PinModal.svelte (version corrigée) -->
 <script lang="ts">
   import { cryptoService } from '$lib/services/crypto.js';
+  import { debugService } from '$lib/services/DebugService.js';
 
   let { onSubmit, onClose, title = 'Enter PIN' } = $props<{
     onSubmit: (pin: string) => Promise<void>;
@@ -12,11 +13,10 @@
   let error = $state<string | null>(null);
   let isLoading = $state(false);
   let shakeError = $state(false);
+  let remainingAttempts = $state(Infinity); // Infini pour permettre autant de tentatives que nécessaire
 
   // Utilisation de validatePassword
   let isValidInput = $derived(cryptoService.validatePassword(password));
-  
-  
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
@@ -25,13 +25,19 @@
     try {
       isLoading = true;
       error = null;
+      debugService.info(`PinModal: Processing PIN submission...`);
       await onSubmit(password);
       password = ''; // Reset password après succès
+      debugService.info(`PinModal: PIN processed successfully`);
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Invalid password';
+      const errorMessage = err instanceof Error ? err.message : 'Invalid password';
+      debugService.error(`PinModal: PIN submission error: ${errorMessage}`);
+      error = errorMessage;
       password = ''; // Reset password après erreur
       shakeError = true;
       setTimeout(() => shakeError = false, 500);
+      
+      // Pas de décrément de tentatives restantes - permettre des tentatives illimitées
     } finally {
       isLoading = false;
     }
@@ -109,10 +115,7 @@
           autocomplete="current-password"
           disabled={isLoading}
           aria-invalid={password && !isValidInput ? 'true' : undefined}
-          
         />
-
-       
       </div>
 
       <div class="flex justify-end space-x-3 pt-4">

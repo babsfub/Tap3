@@ -9,6 +9,7 @@
   import { useCardState } from '$lib/stores/card.js';
   import { nfcService } from '$lib/services/nfc.js';
   import { debugService } from '$lib/services/DebugService.js';
+  import { walletService } from '$lib/services/wallet.js';
   
   let { onSubmit, onClose } = $props<{
     onSubmit: (to: Address, amount: string, pin: string) => Promise<void>;
@@ -22,7 +23,8 @@
   let showPin = $state(false);
   let address = $state('');
   let amount = $state('');
-  let processingPayment = $state(false); // État local pour indiquer le chargement
+  let processingPayment = $state(false);
+  let connectionAttempts = $state(0);
   
   let currentCard = $derived(cardState.getState().currentCard);
   let paymentStatus = $derived(paymentState.getState().status);
@@ -36,73 +38,74 @@
   let isValidAmount = $derived(parseFloat(amount) > 0);
   let canSubmit = $derived(isValidAddress && isValidAmount && !isLoading && currentCard);
   
-  // Lors de l'initialisation, enregistrer l'état initial
-  $effect(() => {
-    debugService.debug(`Payment: Initialisation avec currentCard: ${currentCard?.id || 'aucune'}`);
-  });
+  // Mode débogage pour tracer le processus de paiement
+  let debugSteps = $state<string[]>([]);
+  function logStep(step: string) {
+    debugSteps = [...debugSteps, `${new Date().toISOString().split('T')[1]}: ${step}`];
+    debugService.info(`Payment process: ${step}`);
+  }
 
-  // Gestion de la lecture NFC du destinataire
   async function handleRecipientCardRead(cardInfo: CardInfo) {
     try {
-      debugService.info(`Payment: Carte destinataire lue, ID: ${cardInfo.id}`);
+      debugService.info(`Payment: Recipient card read, ID: ${cardInfo.id}`);
       
-      // Arrêter la lecture immédiatement et complètement
-      await nfcService.stopReading().catch((e) => {
-        debugService.warn(`Payment: Erreur lors de l'arrêt du lecteur NFC: ${e}`);
+      // Stop reading immediately
+      await nfcService.stopReading().catch(e => {
+        debugService.warn(`Payment: Error stopping NFC reader: ${e}`);
       });
       
+      // Small delay to ensure proper cleanup
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       if (cardInfo.pub) {
-        // Vérifier que ce n'est pas la même carte
+        // Check it's not the same card
         if (currentCard?.pub && cardInfo.pub === currentCard.pub) {
-          const errorMsg = "Impossible d'envoyer à la même carte";
-          debugService.error(`Payment: ❌ ${errorMsg} - Source: ${currentCard.pub.slice(0, 8)}, Destination: ${cardInfo.pub.slice(0, 8)}`);
+          const errorMsg = "Cannot send to the same card";
+          debugService.error(`Payment: ❌ ${errorMsg}`);
           error = errorMsg;
           return;
         }
         
-        // Mettre à jour l'adresse et cacher le lecteur NFC
-        debugService.info(`Payment: Adresse destinataire définie: ${cardInfo.pub}`);
+        // Update address and hide NFC reader
+        debugService.info(`Payment: Recipient address set: ${cardInfo.pub}`);
         address = cardInfo.pub;
-        
-        // Important: attendez un peu avant de cacher le lecteur NFC
-        await new Promise(resolve => setTimeout(resolve, 100));
         showNFCReader = false;
-        error = null; // Effacer les erreurs précédentes
+        error = null;
       } else {
-        const errorMsg = 'Carte destinataire invalide - adresse manquante';
+        const errorMsg = 'Invalid recipient card - missing address';
         debugService.error(`Payment: ❌ ${errorMsg}`);
         error = errorMsg;
       }
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Erreur lors du traitement de la carte destinataire';
-      debugService.error(`Payment: ❌ Erreur lors du traitement de la carte: ${errorMsg}`);
+      const errorMsg = err instanceof Error ? err.message : 'Error processing recipient card';
+      debugService.error(`Payment: ❌ Error processing card: ${errorMsg}`);
       error = errorMsg;
     }
   }
 
   async function startNFCReading(e: Event) {
-    // Empêcher tout comportement par défaut
+    // Prevent default behavior
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     
-    error = null; // Effacer les erreurs précédentes
+    error = null;
     
     try {
-      debugService.info('Payment: Début de la lecture NFC pour la carte destinataire...');
+      debugService.info('Payment: Starting NFC reading for recipient card...');
       
-      // S'assurer que le lecteur est arrêté avant de commencer
+      // Make sure reader is stopped before starting
       await nfcService.stopReading().catch((e) => {
-        debugService.warn(`Payment: Erreur lors de l'arrêt du lecteur NFC: ${e}`);
+        debugService.warn(`Payment: Error stopping NFC reader: ${e}`);
       });
       
-      // Un délai plus long pour s'assurer que tout est bien nettoyé
-      debugService.debug('Payment: Attente avant redémarrage du lecteur NFC...');
+      // Longer delay to ensure proper cleanup
+      debugService.debug('Payment: Waiting before restarting NFC reader...');
       await new Promise(resolve => setTimeout(resolve, 400));
       
-      // Après le nettoyage, montrer le lecteur NFC
-      debugService.info('Payment: Affichage du lecteur NFC');
+      // After cleanup, show NFC reader
+      debugService.info('Payment: Showing NFC reader');
       showNFCReader = true;
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Échec du démarrage du lecteur NFC';
+      const errorMsg = err instanceof Error ? err.message : 'Failed to start NFC reader';
       debugService.error(`Payment: ❌ ${errorMsg}`);
       error = errorMsg;
     }
@@ -111,57 +114,120 @@
   async function handleSubmit(e: Event) {
     e.preventDefault();
     if (!canSubmit) {
-      debugService.warn('Payment: Tentative de soumission avec formulaire invalide');
+      debugService.warn('Payment: Attempted submission with invalid form');
       return;
     }
     
-    debugService.info(`Payment: 📝 Transaction demandée: ${amount} MATIC vers ${address}`);
+    debugService.info(`Payment: 📝 Transaction requested: ${amount} MATIC to ${address}`);
     
-    // Stocker les valeurs pour la confirmation
+    // Store values for confirmation
     pendingTo = address as Address;
     pendingAmount = amount;
     
-    // Afficher la modal de PIN
-    debugService.info('Payment: Affichage de la modal de PIN pour confirmation');
+    // Reset debug steps
+    debugSteps = [];
+    logStep('Transaction initiated');
+    
+    // Show PIN modal
+    debugService.info('Payment: Showing PIN modal for confirmation');
     showPin = true;
   }
 
   async function handlePinSubmit(pin: string): Promise<void> {
     if (!pendingTo || !pendingAmount || !currentCard) {
-      debugService.error('Payment: Données de transaction incomplètes lors de la soumission du PIN');
+      debugService.error('Payment: Incomplete transaction data when submitting PIN');
+      logStep('❌ Incomplete transaction data');
       return;
     }
     
-    debugService.info(`Payment: PIN soumis, traitement de la transaction...`);
+    logStep('PIN submitted, processing transaction...');
+    debugService.info(`Payment: PIN submitted, processing transaction...`);
+    connectionAttempts = 0;
     
     try {
-      // Afficher clairement que nous sommes en train de charger
+      // Show we're processing
       processingPayment = true;
       
-      // Débloquer la carte avec le PIN fourni
-      debugService.debug('Payment: Déverrouillage de la carte...');
+      // Initialize WalletKit explicitly before connecting
+      logStep('Ensuring wallet service is initialized...');
+      try {
+        const initialized = await walletService.initialize();
+        if (!initialized) {
+          throw new Error('Failed to initialize wallet service');
+        }
+        logStep('Wallet service initialized successfully');
+      } catch (initError) {
+        logStep(`❌ Wallet initialization failed: ${initError instanceof Error ? initError.message : String(initError)}`);
+        throw new Error(`Wallet initialization failed: ${initError instanceof Error ? initError.message : 'Unknown error'}`);
+      }
+      
+      // Connect card with PIN - sans limite stricte de tentatives
+      logStep('Connecting card with PIN...');
+      let connected = false;
+      
+      // On incrémente connectionAttempts uniquement pour le logging
+      connectionAttempts++;
+      try {
+        logStep(`Tentative de connexion avec le PIN fourni...`);
+        connected = await walletService.connectCard(currentCard, pin);
+        
+        if (!connected) {
+          logStep(`Échec de connexion - le PIN est probablement incorrect`);
+          throw new Error('PIN incorrect. Veuillez vérifier votre mot de passe et réessayer.');
+        } else {
+          logStep(`Carte connectée avec succès`);
+        }
+      } catch (connError) {
+        logStep(`❌ Erreur de connexion: ${connError instanceof Error ? connError.message : String(connError)}`);
+        throw new Error(`Échec de connexion: ${connError instanceof Error ? connError.message : 'PIN incorrect'}`);
+      }
+      
+      // Unlock card state AFTER successful connection
+      logStep('Unlocking card state...');
       cardState.unlockCard();
       
-      // Attendre un court instant pour s'assurer que le changement d'état est propagé
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Wait to ensure state changes are propagated
+      await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Soumettre la transaction avec toutes les informations
-      debugService.info(`Payment: Envoi de la transaction: ${pendingAmount} MATIC vers ${pendingTo}`);
+      // Verify wallet is connected and address is available
+      logStep('Verifying wallet connection...');
+      if (!walletService.isConnected()) {
+        throw new Error('Portefeuille non connecté - le PIN fourni est probablement incorrect');
+      }
+      
+      const address = walletService.getAddress();
+      if (!address) {
+        throw new Error('Unable to obtain wallet address after connection');
+      }
+      
+      logStep(`Wallet connected to address ${address}`);
+      
+      // Submit transaction with all information
+      logStep(`Sending transaction: ${pendingAmount} MATIC to ${pendingTo}`);
       await onSubmit(pendingTo, pendingAmount, pin);
       
-      // Nettoyage après succès
-      debugService.info('Payment: ✅ Transaction soumise avec succès!');
+      // Cleanup after success
+      logStep('✅ Transaction submitted successfully!');
       showPin = false;
       onClose();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Échec du paiement';
-      debugService.error(`Payment: ❌ Échec de la transaction: ${errorMsg}`);
+      const errorMsg = err instanceof Error ? err.message : 'Payment failed';
+      logStep(`❌ Transaction failed: ${errorMsg}`);
+      debugService.error(`Payment: ❌ Transaction failed: ${errorMsg}`);
       error = errorMsg;
       showPin = false;
       
-      // Reverrouiller la carte pour la sécurité
-      debugService.debug('Payment: Reverrouillage de la carte après échec');
+      // Lock card for security
+      debugService.debug('Payment: Locking card after failure');
       cardState.lockCard();
+      
+      // Explicitly disconnect wallet on error
+      try {
+        await walletService.disconnect();
+        debugService.debug('Payment: Wallet disconnected after failure');
+      } catch (disconnectErr) {
+        debugService.warn(`Payment: Failed to disconnect wallet: ${disconnectErr}`);
+      }
     } finally {
       processingPayment = false;
       pendingTo = null;
@@ -189,22 +255,33 @@
       </div>
     {/if}
 
+    {#if debugSteps.length > 0 && import.meta.env.DEV}
+      <div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs font-mono overflow-y-auto max-h-32">
+        <h3 class="font-bold mb-1">Debug log:</h3>
+        <ol class="list-decimal pl-5 space-y-1">
+          {#each debugSteps as step}
+            <li>{step}</li>
+          {/each}
+        </ol>
+      </div>
+    {/if}
+
     {#if showNFCReader}
       <NFCReader
         mode="payment"
         onRead={handleRecipientCardRead}
         onError={(message) => {
           error = message;
-          debugService.error(`Payment: Erreur du lecteur NFC: ${message}`);
+          debugService.error(`Payment: NFC reader error: ${message}`);
         }}
         onSuccess={() => {
           error = null;
-          debugService.info('Payment: Lecteur NFC a terminé avec succès');
+          debugService.info('Payment: NFC reader completed successfully');
         }}
         onClose={() => {
           showNFCReader = false;
           error = null;
-          debugService.info('Payment: Lecteur NFC fermé');
+          debugService.info('Payment: NFC reader closed');
         }}
         updateCardState={false} 
       />
@@ -261,7 +338,7 @@
             type="button"
             onclick={() => {
               onClose();
-              debugService.info('Payment: Modal fermée par l\'utilisateur');
+              debugService.info('Payment: Modal closed by user');
             }}
             class="px-4 py-2 text-gray-700 bg-gray-100 rounded-md 
                    hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
