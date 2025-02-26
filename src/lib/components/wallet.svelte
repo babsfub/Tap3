@@ -76,18 +76,14 @@
 
   // Initiate payment
   function initiatePayment() {
-    if (!currentCard) {
-      error = 'No card connected';
-      return;
-    }
-    
-    debugService.info('Initiating payment from wallet');
-    if (isCardLocked) {
-      showPinModal = true;
-    } else {
-      showPaymentModal = true;
-    }
+  if (!currentCard) {
+    error = 'No card connected';
+    return;
   }
+  
+  debugService.info('Initiating payment from wallet');
+  showPaymentModal = true;
+}
 
   // Unlock card with PIN
   async function handlePinSubmit(pin: string) {

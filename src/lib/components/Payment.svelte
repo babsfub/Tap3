@@ -47,12 +47,11 @@
         return;
       }
       
-      // Mettre à jour l'adresse et cacher le lecteur NFC
       address = cardInfo.pub;
-      // Important: attendez un peu avant de cacher le lecteur NFC
+      
       await new Promise(resolve => setTimeout(resolve, 100));
       showNFCReader = false;
-      error = null; // Effacer les erreurs précédentes
+      error = null; 
     } else {
       error = 'Invalid recipient card';
     }
