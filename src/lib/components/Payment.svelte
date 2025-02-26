@@ -8,6 +8,7 @@
   import { usePaymentState } from '$lib/stores/payments.js';
   import { useCardState } from '$lib/stores/card.js';
   import { nfcService } from '$lib/services/nfc.js';
+  import { debugService } from '$lib/services/DebugService.js';
   
   let { onSubmit, onClose } = $props<{
     onSubmit: (to: Address, amount: string, pin: string) => Promise<void>;
@@ -21,11 +22,12 @@
   let showPin = $state(false);
   let address = $state('');
   let amount = $state('');
+  let processingPayment = $state(false); // État local pour indiquer le chargement
   
   let currentCard = $derived(cardState.getState().currentCard);
   let paymentStatus = $derived(paymentState.getState().status);
   let error = $state<string | null>(null);
-  let isLoading = $derived(paymentStatus === 'loading');
+  let isLoading = $derived(paymentStatus === 'loading' || processingPayment);
 
   let pendingTo = $state<Address | null>(null);
   let pendingAmount = $state<string | null>(null);
@@ -33,32 +35,48 @@
   let isValidAddress = $derived(isAddress(address as Address));
   let isValidAmount = $derived(parseFloat(amount) > 0);
   let canSubmit = $derived(isValidAddress && isValidAmount && !isLoading && currentCard);
+  
+  // Lors de l'initialisation, enregistrer l'état initial
+  $effect(() => {
+    debugService.debug(`Payment: Initialisation avec currentCard: ${currentCard?.id || 'aucune'}`);
+  });
 
   // Gestion de la lecture NFC du destinataire
   async function handleRecipientCardRead(cardInfo: CardInfo) {
     try {
+      debugService.info(`Payment: Carte destinataire lue, ID: ${cardInfo.id}`);
+      
       // Arrêter la lecture immédiatement et complètement
-      await nfcService.stopReading().catch(() => {/* ignorer les erreurs */});
+      await nfcService.stopReading().catch((e) => {
+        debugService.warn(`Payment: Erreur lors de l'arrêt du lecteur NFC: ${e}`);
+      });
       
       if (cardInfo.pub) {
         // Vérifier que ce n'est pas la même carte
         if (currentCard?.pub && cardInfo.pub === currentCard.pub) {
-          error = "Cannot send to the same card";
+          const errorMsg = "Impossible d'envoyer à la même carte";
+          debugService.error(`Payment: ❌ ${errorMsg} - Source: ${currentCard.pub.slice(0, 8)}, Destination: ${cardInfo.pub.slice(0, 8)}`);
+          error = errorMsg;
           return;
         }
         
         // Mettre à jour l'adresse et cacher le lecteur NFC
+        debugService.info(`Payment: Adresse destinataire définie: ${cardInfo.pub}`);
         address = cardInfo.pub;
+        
         // Important: attendez un peu avant de cacher le lecteur NFC
         await new Promise(resolve => setTimeout(resolve, 100));
         showNFCReader = false;
         error = null; // Effacer les erreurs précédentes
       } else {
-        error = 'Invalid recipient card';
+        const errorMsg = 'Carte destinataire invalide - adresse manquante';
+        debugService.error(`Payment: ❌ ${errorMsg}`);
+        error = errorMsg;
       }
     } catch (err) {
-      console.error("Error handling recipient card:", err);
-      error = err instanceof Error ? err.message : 'Error processing recipient card';
+      const errorMsg = err instanceof Error ? err.message : 'Erreur lors du traitement de la carte destinataire';
+      debugService.error(`Payment: ❌ Erreur lors du traitement de la carte: ${errorMsg}`);
+      error = errorMsg;
     }
   }
 
@@ -69,42 +87,83 @@
     error = null; // Effacer les erreurs précédentes
     
     try {
+      debugService.info('Payment: Début de la lecture NFC pour la carte destinataire...');
+      
       // S'assurer que le lecteur est arrêté avant de commencer
-      await nfcService.stopReading().catch(() => {/* ignorer les erreurs */});
+      await nfcService.stopReading().catch((e) => {
+        debugService.warn(`Payment: Erreur lors de l'arrêt du lecteur NFC: ${e}`);
+      });
       
       // Un délai plus long pour s'assurer que tout est bien nettoyé
+      debugService.debug('Payment: Attente avant redémarrage du lecteur NFC...');
       await new Promise(resolve => setTimeout(resolve, 400));
       
       // Après le nettoyage, montrer le lecteur NFC
+      debugService.info('Payment: Affichage du lecteur NFC');
       showNFCReader = true;
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to start NFC reader';
+      const errorMsg = err instanceof Error ? err.message : 'Échec du démarrage du lecteur NFC';
+      debugService.error(`Payment: ❌ ${errorMsg}`);
+      error = errorMsg;
     }
   }
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      debugService.warn('Payment: Tentative de soumission avec formulaire invalide');
+      return;
+    }
     
+    debugService.info(`Payment: 📝 Transaction demandée: ${amount} MATIC vers ${address}`);
+    
+    // Stocker les valeurs pour la confirmation
     pendingTo = address as Address;
     pendingAmount = amount;
+    
+    // Afficher la modal de PIN
+    debugService.info('Payment: Affichage de la modal de PIN pour confirmation');
     showPin = true;
   }
 
-  async function handlePinSubmit(pin: string) {
-    if (!pendingTo || !pendingAmount || !currentCard) return;
+  async function handlePinSubmit(pin: string): Promise<void> {
+    if (!pendingTo || !pendingAmount || !currentCard) {
+      debugService.error('Payment: Données de transaction incomplètes lors de la soumission du PIN');
+      return;
+    }
+    
+    debugService.info(`Payment: PIN soumis, traitement de la transaction...`);
     
     try {
-      // Déverrouiller la carte uniquement ici - c'est le moment approprié
-      cardState.unlockCard(); 
+      // Afficher clairement que nous sommes en train de charger
+      processingPayment = true;
+      
+      // Débloquer la carte avec le PIN fourni
+      debugService.debug('Payment: Déverrouillage de la carte...');
+      cardState.unlockCard();
+      
+      // Attendre un court instant pour s'assurer que le changement d'état est propagé
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Soumettre la transaction avec toutes les informations
+      debugService.info(`Payment: Envoi de la transaction: ${pendingAmount} MATIC vers ${pendingTo}`);
       await onSubmit(pendingTo, pendingAmount, pin);
+      
+      // Nettoyage après succès
+      debugService.info('Payment: ✅ Transaction soumise avec succès!');
       showPin = false;
       onClose();
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Payment failed';
+      const errorMsg = err instanceof Error ? err.message : 'Échec du paiement';
+      debugService.error(`Payment: ❌ Échec de la transaction: ${errorMsg}`);
+      error = errorMsg;
       showPin = false;
-      cardState.lockCard(); 
+      
+      // Reverrouiller la carte pour la sécurité
+      debugService.debug('Payment: Reverrouillage de la carte après échec');
+      cardState.lockCard();
     } finally {
+      processingPayment = false;
       pendingTo = null;
       pendingAmount = null;
     }
@@ -134,13 +193,20 @@
       <NFCReader
         mode="payment"
         onRead={handleRecipientCardRead}
-        onError={(message) => error = message}
-        onSuccess={() => error = null}
+        onError={(message) => {
+          error = message;
+          debugService.error(`Payment: Erreur du lecteur NFC: ${message}`);
+        }}
+        onSuccess={() => {
+          error = null;
+          debugService.info('Payment: Lecteur NFC a terminé avec succès');
+        }}
         onClose={() => {
           showNFCReader = false;
           error = null;
+          debugService.info('Payment: Lecteur NFC fermé');
         }}
-        updateCardState={false}
+        updateCardState={false} 
       />
     {:else}
       <form onsubmit={handleSubmit} class="space-y-4">
@@ -193,7 +259,10 @@
         <footer class="flex justify-end gap-3 pt-4">
           <button 
             type="button"
-            onclick={onClose}
+            onclick={() => {
+              onClose();
+              debugService.info('Payment: Modal fermée par l\'utilisateur');
+            }}
             class="px-4 py-2 text-gray-700 bg-gray-100 rounded-md 
                    hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
                    dark:hover:bg-gray-600 transition-colors"
@@ -221,10 +290,14 @@
 {#if showPin}  
    <PinModal
       title="Confirm Payment"
-      onSubmit={(pin) => handlePinSubmit(pin)}
+      onSubmit={async (pin) => {
+        debugService.debug('Payment: PIN soumis depuis la modal');
+        await handlePinSubmit(pin);
+      }}
       onClose={() => {
         showPin = false;
         error = null;
+        debugService.info('Payment: Modal de PIN fermée par l\'utilisateur');
       }}
     />  
 {/if}
