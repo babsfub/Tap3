@@ -1,6 +1,6 @@
-<!-- lib/components/Wallet.svelte (version corrigée) -->
+<!-- lib/components/Wallet.svelte -->
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { useCardState } from '$lib/stores/card.js';
   import { useHistoryState } from '$lib/stores/history.js';
   import { usePaymentState } from '$lib/stores/payments.js';
@@ -21,11 +21,12 @@
   const historyState = useHistoryState();
   const paymentState = usePaymentState();
 
-  // Component state with proper typing
+  // Component state with proper typing using Svelte 5 runes
   let currentCard = $state<CardInfo | null>(null);
   let isCardLocked = $state(true);
   let balance = $state('0');
   
+  // État des modaux et autres états UI
   let showPinModal = $state(false);
   let showQRCode = $state(false);
   let showPaymentModal = $state(false);
@@ -33,7 +34,10 @@
   let isLoading = $state(false);
   let pinAction = $state<'unlock' | 'payment'>('unlock');
 
-  // Debug state to track wallet connections
+  // Ajout d'un mécanisme pour s'assurer que PinModal est monté
+  let pinModalMounted = $state(false);
+  
+  // États pour le suivi du wallet
   let walletConnected = $state(false);
   let walletAddress = $state<string | null>(null);
 
@@ -61,8 +65,14 @@
     debugService.debug(`Card state updated: card=${currentCard?.id}, locked=${isCardLocked}, wallet connected=${walletConnected}`);
   }
 
-  // Initial state load
-  updateFromCardState();
+  onMount(() => {
+    debugService.info('Wallet component mounted');
+    updateFromCardState();
+    pinModalMounted = false;
+    
+    // Log lorsque le composant est monté pour faciliter le débogage
+    console.log('Wallet component mounted, current card:', currentCard);
+  });
 
   // Set up subscription for state changes
   let unsubscribe = cardState.subscribe((state) => {
@@ -106,42 +116,50 @@
     showPaymentModal = true;
   }
 
-  // Initiate unlock process
+  // Initiate unlock process 
   function initiateUnlock() {
+  if (!currentCard) {
+    error = 'No card connected';
+    return;
+  }
+  
+  debugService.info('Initiating card unlock process');
+  
+  // Définir l'action et le modal
+  pinAction = 'unlock';
+  showPinModal = true;
+}
+
+
+  // Unlock card with PIN - processus complet
+  async function handlePinSubmit(pin: string) {
+    console.log('PIN submitted, starting processing');
+    debugService.info('PIN submitted for processing');
+    
     if (!currentCard) {
-      error = 'No card connected';
+      console.error('No card available for unlocking');
       return;
     }
-    
-    debugService.info('Initiating card unlock');
-    pinAction = 'unlock';
-    showPinModal = true;
-  }
-
-  // Unlock card with PIN
-  async function handlePinSubmit(pin: string) {
-    if (!currentCard) return;
 
     try {
       isLoading = true;
-      debugService.info('PIN submitted, processing...');
       
       if (pinAction === 'unlock') {
-        // Important: await the unlockCard method now that it's async
+        console.log('Unlocking card with PIN');
+        // Déverrouiller la carte avec le PIN fourni
         const success = await cardState.unlockCard(pin);
         
         if (success) {
-          // Vérifier à nouveau le statut du wallet après le déverrouillage
+          // Vérifier le statut du wallet après déverrouillage
           updateWalletStatus();
           debugService.info(`Card unlocked successfully, wallet connected: ${walletConnected}`);
           
           if (!walletConnected) {
-            // Si le wallet n'est toujours pas connecté, essayer de le connecter directement
-            debugService.warn('Wallet still not connected after card unlock, trying direct connection');
+            // Tentative de connexion directe si le wallet n'est pas connecté
+            debugService.warn('Wallet not connected after card unlock, trying direct connection');
             const connected = await walletService.connectCard(currentCard, pin);
             if (connected) {
               debugService.info('Direct wallet connection successful');
-              // Force UI update to reflect wallet connection
               isCardLocked = false;
               updateWalletStatus();
             } else {
@@ -149,18 +167,21 @@
             }
           }
           
+          // Succès - masquer le modal et effacer les erreurs
           showPinModal = false;
           error = null;
+          console.log('Unlock successful, PIN modal closed');
         } else {
           throw new Error('Invalid PIN or connection failed');
         }
       } else if (pinAction === 'payment') {
-        // Si c'était pour un paiement, géré ailleurs
+        // Gestion des actions de paiement
         showPinModal = false;
       }
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to unlock card';
       debugService.error(`Unlock error: ${error}`);
+      console.error('PIN processing error:', error);
     } finally {
       isLoading = false;
     }
@@ -173,10 +194,8 @@
       await paymentState.sendTransaction(to, amount, pin);
       showPaymentModal = false;
       
-      // Mettre à jour le statut du wallet après le paiement
       updateWalletStatus();
       
-      // Vérifier que l'historique sera affiché
       if (isCardLocked && walletConnected) {
         debugService.info('Payment successful but card still locked in UI, updating state');
         isCardLocked = false;
@@ -185,6 +204,12 @@
       debugService.error(`Payment failed: ${err}`);
       error = err instanceof Error ? err.message : 'Payment failed';
     }
+  }
+
+  // Fonction explicite pour fermer le modal PIN
+  function closePinModal() {
+    console.log('Closing PIN modal');
+    showPinModal = false;
   }
 </script>
 
@@ -252,23 +277,47 @@
     {/if}
     
     <!-- Balance updater runs in background - INSTANCE UNIQUE -->
-    <BalanceUpdater updateInterval={12} />
+    <BalanceUpdater updateInterval={20} />
   {/if}
 
+  <!-- Render PIN modal - simplification des tests de visibilité -->
   {#if showPinModal}
-    <PinModal 
-      onSubmit={handlePinSubmit}
-      onClose={() => showPinModal = false}
-      title={pinAction === 'unlock' ? 'Unlock Card' : 'Enter PIN'}
-    />
-  {/if}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
+      <PinModal 
+        onSubmit={async (pin) => {
+          debugService.info('PIN submitted, processing...');
+          try {
+            await handlePinSubmit(pin);
+          } catch (e) {
+            debugService.error(`Error in PIN processing: ${e}`);
+            // Ne pas fermer le modal en cas d'erreur
+          }
+        }}
+        onClose={() => {
+          debugService.info('PIN modal closed by user');
+          showPinModal = false;
+        }}
+        title={pinAction === 'unlock' ? 'Unlock Card' : 'Enter PIN'}
+      />
+    </div>
+  </div>
+{/if}
 
-  {#if showPaymentModal}
-    <PaymentModal
-      onSubmit={handlePaymentSubmit}
-      onClose={() => showPaymentModal = false}
-    />
-  {/if}
+{#if showPaymentModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
+      <PaymentModal
+        onSubmit={handlePaymentSubmit}
+        onClose={() => {
+          debugService.info('Payment modal closed by user');
+          showPaymentModal = false;
+        }}
+      />
+    </div>
+  </div>
+{/if}
+
 
   {#if showQRCode && currentCard?.pub}
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -277,6 +326,26 @@
           address={currentCard.pub} 
           onClose={() => showQRCode = false}
         />
+      </div>
+    </div>
+  {/if}
+
+  
+
+  <!-- Bouton de débogage pour forcer l'affichage du modal PIN (développement uniquement) -->
+  {#if import.meta.env.DEV}
+    <div class="fixed bottom-4 right-4 flex flex-col gap-2">
+      <button 
+        class="bg-purple-600 text-white px-3 py-1 rounded-lg text-sm shadow"
+        onclick={() => {
+          showPinModal = true;
+          console.log('PIN modal forced to show');
+        }}
+      >
+        Force Show PIN Modal
+      </button>
+      <div class="text-xs text-gray-500 bg-white p-1 rounded">
+        PIN modal state: {showPinModal ? 'visible' : 'hidden'}
       </div>
     </div>
   {/if}

@@ -1,8 +1,10 @@
-<!-- lib/components/modals/PinModal.svelte (version corrigée) -->
+<!-- lib/components/modals/PinModal.svelte -->
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { cryptoService } from '$lib/services/crypto.js';
   import { debugService } from '$lib/services/DebugService.js';
 
+  // Utilisation de $props avec Svelte 5
   let { onSubmit, onClose, title = 'Enter PIN' } = $props<{
     onSubmit: (pin: string) => Promise<void>;
     onClose: () => void;
@@ -12,147 +14,122 @@
   let password = $state('');
   let error = $state<string | null>(null);
   let isLoading = $state(false);
-  let shakeError = $state(false);
-  let remainingAttempts = $state(Infinity); // Infini pour permettre autant de tentatives que nécessaire
+  let hasInteracted = $state(false); // Nouvelle variable pour suivre l'interaction utilisateur
+  
+  // Validation du mot de passe UNIQUEMENT après interaction utilisateur
+  let isValidInput = $derived(() => {
+    // Si l'utilisateur n'a pas encore interagi, considérer comme valide
+    if (!hasInteracted) return true;
+    
+    // Sinon, appliquer la validation normale
+    return cryptoService.validatePassword(password);
+  });
 
-  // Utilisation de validatePassword
-  let isValidInput = $derived(cryptoService.validatePassword(password));
+  onMount(() => {
+    debugService.info('PinModal: Component mounted');
+    
+    // Mettre le focus sur l'input au montage
+    setTimeout(() => {
+      try {
+        const input = document.getElementById('password-input');
+        if (input) {
+          (input as HTMLInputElement).focus();
+          debugService.debug('PinModal: Input focused');
+        }
+      } catch (e) {
+        debugService.warn(`Failed to focus input: ${e}`);
+      }
+    }, 100);
+  });
+
+  // Marquer l'interaction utilisateur
+  function handleInputChange() {
+    hasInteracted = true;
+  }
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
-    if (!isValidInput || isLoading) return;
+    
+    // Marquer comme interagi au moment de la soumission
+    hasInteracted = true;
+    
+    // Valider explicitement le mot de passe lors de la soumission
+    const isPasswordValid = cryptoService.validatePassword(password);
+    if (!isPasswordValid || isLoading) {
+      debugService.warn(`Submission prevented: valid=${isPasswordValid}, loading=${isLoading}`);
+      return;
+    }
     
     try {
       isLoading = true;
       error = null;
+      
       debugService.info(`PinModal: Processing PIN submission...`);
       await onSubmit(password);
-      password = ''; // Reset password après succès
-      debugService.info(`PinModal: PIN processed successfully`);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Invalid password';
-      debugService.error(`PinModal: PIN submission error: ${errorMessage}`);
-      error = errorMessage;
-      password = ''; // Reset password après erreur
-      shakeError = true;
-      setTimeout(() => shakeError = false, 500);
       
-      // Pas de décrément de tentatives restantes - permettre des tentatives illimitées
+      password = ''; // Reset password après succès
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Invalid password';
+      debugService.error(`PinModal: Submission error: ${error}`);
+      password = '';
     } finally {
       isLoading = false;
     }
   }
-
-  // Auto-focus du champ password
-  let passwordInput: HTMLInputElement;
-  $effect(() => {
-    passwordInput?.focus();
-  });
 </script>
 
-<div 
-  class="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-50"
-  aria-labelledby="password-modal-title"
-  role="dialog"
-  aria-modal="true"
->
-  <div 
-    class="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full p-6 shadow-xl
-           {shakeError ? 'animate-shake' : ''}"
-  >
-    <div class="flex justify-between items-center mb-6">
-      <h2 
-        id="password-modal-title" 
-        class="text-xl font-bold dark:text-white"
-      >
-        {title ?? 'Enter Password'}
-      </h2>
-      
-      <button 
-        onclick={onClose}
-        class="text-gray-500 hover:text-gray-700 dark:text-gray-400 
-               dark:hover:text-gray-300 transition-colors"
-        aria-label="Close"
-      >
-        <span class="material-icons">close</span>
-      </button>
+<!-- Structure simplifiée, contenu du modal uniquement -->
+<div class="p-6">
+  <header class="mb-6 flex justify-between items-center">
+    <h2 class="text-xl font-bold dark:text-white">{title}</h2>
+    <button 
+      onclick={onClose} 
+      type="button"
+      class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+    >×</button>
+  </header>
+
+  {#if error}
+    <div class="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+      {error}
+    </div>
+  {/if}
+
+  <form onsubmit={handleSubmit} class="space-y-4">
+    <div>
+      <label for="password-input" class="block font-medium mb-1 dark:text-gray-200">
+        PIN
+      </label>
+      <input
+        id="password-input"
+        type="password"
+        bind:value={password}
+        oninput={handleInputChange}
+        placeholder="Enter your PIN"
+        class="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+        class:border-red-500={hasInteracted && !isValidInput}
+        disabled={isLoading}
+      />
     </div>
 
-    {#if error}
-      <div 
-        class="bg-red-100 dark:bg-red-900/50 border border-red-400 
-               dark:border-red-800 text-red-700 dark:text-red-100 
-               px-4 py-3 rounded mb-4"
-        role="alert"
+    <footer class="flex justify-end gap-3 pt-4">
+      <button 
+        type="button"
+        onclick={onClose}
+        class="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+        disabled={isLoading}
       >
-        {error}
-      </div>
-    {/if}
-
-    <form onsubmit={handleSubmit} class="space-y-4">
-      <div>
-        <label 
-          for="password-input"
-          class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-        >
-          Password
-        </label>
-
-        <input
-          id="password-input"
-          bind:this={passwordInput}
-          type="password"
-          bind:value={password}
-          placeholder="Enter your password"
-          class="w-full px-4 py-2 text-lg
-                 bg-white dark:bg-gray-700 border border-gray-300 
-                 dark:border-gray-600 rounded-lg focus:outline-none 
-                 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400
-                 disabled:opacity-50 disabled:cursor-not-allowed
-                 transition-colors duration-200
-                 {error ? 'border-red-500 focus:ring-red-500' : ''}"
-          class:error={password && !isValidInput}
-          autocomplete="current-password"
-          disabled={isLoading}
-          aria-invalid={password && !isValidInput ? 'true' : undefined}
-        />
-      </div>
-
-      <div class="flex justify-end space-x-3 pt-4">
-        <button
-          type="button"
-          class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg
-                 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
-                 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
-          onclick={onClose}
-          disabled={isLoading}
-        >
-          Cancel
-        </button>
-
-        <button
-          type="submit"
-          class="px-4 py-2 bg-blue-500 text-white rounded-lg
-                 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700
-                 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={!isValidInput || isLoading}
-        >
-          {isLoading ? 'Validating...' : 'Submit'}
-        </button>
-      </div>
-    </form>
-  </div>
+        Cancel
+      </button>
+      
+      <button 
+        type="submit"
+        class="px-4 py-2 text-white bg-blue-500 rounded-md hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
+        class:opacity-50={hasInteracted && !isValidInput}
+        disabled={hasInteracted && !isValidInput || isLoading}
+      >
+        {isLoading ? 'Processing...' : 'Submit'}
+      </button>
+    </footer>
+  </form>
 </div>
-
-<style>
-  .animate-shake {
-    animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
-  }
-
-  @keyframes shake {
-    10%, 90% { transform: translate3d(-1px, 0, 0); }
-    20%, 80% { transform: translate3d(2px, 0, 0); }
-    30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
-    40%, 60% { transform: translate3d(4px, 0, 0); }
-  }
-</style>

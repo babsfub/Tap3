@@ -3,7 +3,6 @@
   import { onMount, onDestroy } from 'svelte';
   import { useCardState } from '$lib/stores/card.js';
   import { apiService } from '$lib/services/api.js';
-  import { debugService } from '$lib/services/DebugService.js';
 
   // Global tracker for active instance to prevent multiple polling instances
   const INSTANCE_ID = Math.random().toString(36).substring(2, 9);
@@ -39,10 +38,10 @@
     isUpdating = true;
     
     try {
-      debugService.info(`[${INSTANCE_ID}] Updating balance for ${cardInfo.pub.slice(0, 10)}...`);
+      (`[${INSTANCE_ID}] Updating balance for ${cardInfo.pub.slice(0, 10)}...`);
       await cardState.updateBalance();
     } catch (error) {
-      debugService.error(`[${INSTANCE_ID}] Failed to update balance: ${error}`);
+      (`[${INSTANCE_ID}] Failed to update balance: ${error}`);
     } finally {
       isUpdating = false;
     }
@@ -53,13 +52,13 @@
     if (!isActive) return;
     
     try {
-      debugService.info(`[${INSTANCE_ID}] Fetching MATIC price...`);
+      (`[${INSTANCE_ID}] Fetching MATIC price...`);
       const price = await apiService.getMaticPrice();
       maticPrice = price;
       lastPriceUpdate = new Date();
-      debugService.info(`[${INSTANCE_ID}] MATIC price updated: $${price}`);
+      (`[${INSTANCE_ID}] MATIC price updated: $${price}`);
     } catch (error) {
-      debugService.error(`[${INSTANCE_ID}] Failed to fetch MATIC price: ${error}`);
+      (`[${INSTANCE_ID}] Failed to fetch MATIC price: ${error}`);
     }
   }
   
@@ -67,7 +66,7 @@
   function stopAllPolling() {
     if (!isActive) return;
     
-    debugService.debug(`[${INSTANCE_ID}] Stopping all balance and price polling`);
+    (`[${INSTANCE_ID}] Stopping all balance and price polling`);
     
     if (balanceIntervalId) {
       window.clearInterval(balanceIntervalId);
@@ -91,7 +90,7 @@
   function startPolling() {
     // Prevent multiple active instances
     if (ACTIVE_INSTANCE && ACTIVE_INSTANCE !== INSTANCE_ID) {
-      debugService.warn(`[${INSTANCE_ID}] Not starting polling: another instance (${ACTIVE_INSTANCE}) is already active`);
+      (`[${INSTANCE_ID}] Not starting polling: another instance (${ACTIVE_INSTANCE}) is already active`);
       return;
     }
     
@@ -105,7 +104,7 @@
     // Check if card is available
     const cardInfo = getCardInfo();
     if (!cardInfo?.pub) {
-      debugService.debug(`[${INSTANCE_ID}] Not starting polling: no card connected`);
+      (`[${INSTANCE_ID}] Not starting polling: no card connected`);
       isActive = false;
       ACTIVE_INSTANCE = null;
       return;
@@ -127,7 +126,7 @@
       void updateMaticPrice();
     }, 5 * 60 * 1000); // 5 minutes
     
-    debugService.info(`[${INSTANCE_ID}] Balance polling started (${updateInterval}s interval)`);
+    (`[${INSTANCE_ID}] Balance polling started (${updateInterval}s interval)`);
   }
   
   // Manual card state check function - not reactive
@@ -138,7 +137,7 @@
   
   // Setup and teardown
   onMount(() => {
-    debugService.info(`[${INSTANCE_ID}] BalanceUpdater mounted`);
+   (`[${INSTANCE_ID}] BalanceUpdater mounted`);
     
     // Initial start if card present
     if (checkCardChanged()) {
@@ -163,7 +162,7 @@
   });
   
   onDestroy(() => {
-    debugService.info(`[${INSTANCE_ID}] BalanceUpdater destroyed`);
+    (`[${INSTANCE_ID}] BalanceUpdater destroyed`);
     stopAllPolling();
   });
 </script>
