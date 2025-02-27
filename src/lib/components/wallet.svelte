@@ -313,6 +313,34 @@
           debugService.info('Payment modal closed by user');
           showPaymentModal = false;
         }}
+        showPinFn={(action, onPinSubmit) => {
+          // Stocker la fonction de soumission du PIN
+          debugService.info(`Payment requested PIN modal for action: ${action}`);
+          
+          // Mettre à jour l'état pinAction
+          pinAction = 'payment';
+          
+          // Custom handler for payment PIN submission
+          const customPinHandler = async (pin: string) => {
+            try {
+              debugService.info('Handling payment PIN submission');
+              await onPinSubmit(pin);
+              // Si onPinSubmit se termine sans erreur, fermer le modal PIN
+              showPinModal = false;
+            } catch (e) {
+              debugService.error(`Error in payment PIN handling: ${e}`);
+              // Laisser le modal PIN ouvert en cas d'erreur
+            }
+          };
+          
+          // Stocker le handler personnalisé pour que le modal PIN l'utilise
+          const currentHandler = customPinHandler;
+          
+          // Afficher le modal PIN
+          showPinModal = true;
+          
+          debugService.info('PIN modal opened for payment');
+        }}
       />
     </div>
   </div>

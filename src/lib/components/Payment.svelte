@@ -3,7 +3,6 @@
   import { isAddress } from 'viem';
   import type { Address } from 'viem';
   import type { CardInfo } from '$lib/types.js';
-  import PinModal from '$lib/components/modals/PinModal.svelte';
   import NFCReader from './NFCReader.svelte';
   import { usePaymentState } from '$lib/stores/payments.js';
   import { useCardState } from '$lib/stores/card.js';
@@ -11,16 +10,16 @@
   import { debugService } from '$lib/services/DebugService.js';
   import { walletService } from '$lib/services/wallet.js';
   
-  let { onSubmit, onClose } = $props<{
+  let { onSubmit, onClose, showPinFn } = $props<{
     onSubmit: (to: Address, amount: string, pin: string) => Promise<void>;
     onClose: () => void;
+    showPinFn?: (action: string, onPinSubmit: (pin: string) => Promise<void>) => void;
   }>();
 
   const paymentState = usePaymentState();
   const cardState = useCardState();
 
   let showNFCReader = $state(false);
-  let showPin = $state(false);
   let address = $state('');
   let amount = $state('');
   let processingPayment = $state(false);
@@ -128,9 +127,15 @@
     debugSteps = [];
     logStep('Transaction initiated');
     
-    // Show PIN modal
-    debugService.info('Payment: Showing PIN modal for confirmation');
-    showPin = true;
+    // Show PIN modal using the parent's function if available
+    if (showPinFn) {
+      debugService.info('Payment: Using parent function to show PIN modal');
+      showPinFn('payment', handlePinSubmit);
+    } else {
+      // Fallback for backward compatibility
+      debugService.warn('Payment: No showPinFn provided, cannot show PIN modal');
+      error = 'Cannot proceed with payment: PIN verification not available';
+    }
   }
 
   async function handlePinSubmit(pin: string): Promise<void> {
@@ -208,14 +213,12 @@
       
       // Cleanup after success
       logStep('✅ Transaction submitted successfully!');
-      showPin = false;
       onClose();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Payment failed';
       logStep(`❌ Transaction failed: ${errorMsg}`);
       debugService.error(`Payment: ❌ Transaction failed: ${errorMsg}`);
       error = errorMsg;
-      showPin = false;
       
       // Lock card for security
       debugService.debug('Payment: Locking card after failure');
@@ -236,145 +239,126 @@
   }
 </script>
 
-<div class="fixed inset-0 flex items-center justify-center bg-black/50" role="dialog" aria-labelledby="modal-title">
-  <div class="w-full max-w-md bg-white dark:bg-gray-800 rounded-lg p-6 shadow-xl">
-    <header class="mb-6 flex justify-between items-center">
-      <h2 id="modal-title" class="text-xl font-bold dark:text-white">Send Payment</h2>
-      <button 
-        onclick={onClose} 
-        class="text-gray-500 hover:text-gray-700 dark:text-gray-400 
-               dark:hover:text-gray-300"
-        aria-label="Close"
-      >×</button>
-    </header>
+<header class="mb-6 flex justify-between items-center">
+  <h2 id="modal-title" class="text-xl font-bold dark:text-white">Send Payment</h2>
+  <button 
+    onclick={onClose} 
+    class="text-gray-500 hover:text-gray-700 dark:text-gray-400 
+           dark:hover:text-gray-300"
+    aria-label="Close"
+  >×</button>
+</header>
 
-    {#if error}
-      <div class="mb-4 p-3 bg-red-100 dark:bg-red-900/50 border border-red-400 
-                  dark:border-red-800 text-red-700 dark:text-red-100 rounded">
-        {error}
-      </div>
-    {/if}
-
-    {#if debugSteps.length > 0 && import.meta.env.DEV}
-      <div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs font-mono overflow-y-auto max-h-32">
-        <h3 class="font-bold mb-1">Debug log:</h3>
-        <ol class="list-decimal pl-5 space-y-1">
-          {#each debugSteps as step}
-            <li>{step}</li>
-          {/each}
-        </ol>
-      </div>
-    {/if}
-
-    {#if showNFCReader}
-      <NFCReader
-        mode="payment"
-        onRead={handleRecipientCardRead}
-        onError={(message) => {
-          error = message;
-          debugService.error(`Payment: NFC reader error: ${message}`);
-        }}
-        onSuccess={() => {
-          error = null;
-          debugService.info('Payment: NFC reader completed successfully');
-        }}
-        onClose={() => {
-          showNFCReader = false;
-          error = null;
-          debugService.info('Payment: NFC reader closed');
-        }}
-        updateCardState={false} 
-      />
-    {:else}
-      <form onsubmit={handleSubmit} class="space-y-4">
-        <div>
-          <label for="address" class="block font-medium mb-1 dark:text-gray-200">
-            Recipient Address
-          </label>
-          <div class="flex gap-2">
-            <input
-              id="address"
-              type="text"
-              bind:value={address}
-              placeholder="0x..."
-              class="flex-1 p-2 border rounded-md dark:bg-gray-700 
-                     dark:border-gray-600 dark:text-white" 
-              class:border-red-500={!isValidAddress && address}
-              disabled={isLoading}
-            />
-            <button
-              type="button"
-              onclick={startNFCReading}
-              class="px-4 py-2 bg-blue-500 text-white rounded-md
-                     hover:bg-blue-600 dark:bg-blue-600 
-                     dark:hover:bg-blue-700 transition-colors
-                     disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={isLoading}
-            >
-              Scan Card
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <label for="amount" class="block font-medium mb-1 dark:text-gray-200">
-            Amount (MATIC)
-          </label>
-          <input
-            id="amount"
-            type="number"
-            bind:value={amount}
-            step="0.000001"
-            min="0"
-            class="w-full p-2 border rounded-md dark:bg-gray-700 
-                   dark:border-gray-600 dark:text-white"
-            class:border-red-500={!isValidAmount && amount}
-            disabled={isLoading}
-          />
-        </div>
-
-        <footer class="flex justify-end gap-3 pt-4">
-          <button 
-            type="button"
-            onclick={() => {
-              onClose();
-              debugService.info('Payment: Modal closed by user');
-            }}
-            class="px-4 py-2 text-gray-700 bg-gray-100 rounded-md 
-                   hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
-                   dark:hover:bg-gray-600 transition-colors"
-            disabled={isLoading}
-          >
-            Cancel
-          </button>
-          
-          <button 
-            type="submit"
-            class="px-4 py-2 text-white bg-blue-500 rounded-md hover:bg-blue-600
-                   dark:bg-blue-600 dark:hover:bg-blue-700 transition-colors
-                   disabled:opacity-50 disabled:cursor-not-allowed"
-            class:opacity-50={!canSubmit}
-            disabled={!canSubmit}
-          >
-            {isLoading ? 'Processing...' : 'Send'}
-          </button>
-        </footer>
-      </form>
-    {/if}
+{#if error}
+  <div class="mb-4 p-3 bg-red-100 dark:bg-red-900/50 border border-red-400 
+              dark:border-red-800 text-red-700 dark:text-red-100 rounded">
+    {error}
   </div>
-</div>
+{/if}
 
-{#if showPin}  
-   <PinModal
-      title="Confirm Payment"
-      onSubmit={async (pin) => {
-        debugService.debug('Payment: PIN soumis depuis la modal');
-        await handlePinSubmit(pin);
-      }}
-      onClose={() => {
-        showPin = false;
-        error = null;
-        debugService.info('Payment: Modal de PIN fermée par l\'utilisateur');
-      }}
-    />  
+{#if debugSteps.length > 0 && import.meta.env.DEV}
+  <div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs font-mono overflow-y-auto max-h-32">
+    <h3 class="font-bold mb-1">Debug log:</h3>
+    <ol class="list-decimal pl-5 space-y-1">
+      {#each debugSteps as step}
+        <li>{step}</li>
+      {/each}
+    </ol>
+  </div>
+{/if}
+
+{#if showNFCReader}
+  <NFCReader
+    mode="payment"
+    onRead={handleRecipientCardRead}
+    onError={(message) => {
+      error = message;
+      debugService.error(`Payment: NFC reader error: ${message}`);
+    }}
+    onSuccess={() => {
+      error = null;
+      debugService.info('Payment: NFC reader completed successfully');
+    }}
+    onClose={() => {
+      showNFCReader = false;
+      error = null;
+      debugService.info('Payment: NFC reader closed');
+    }}
+    updateCardState={false} 
+  />
+{:else}
+  <form onsubmit={handleSubmit} class="space-y-4">
+    <div>
+      <label for="address" class="block font-medium mb-1 dark:text-gray-200">
+        Recipient Address
+      </label>
+      <div class="flex gap-2">
+        <input
+          id="address"
+          type="text"
+          bind:value={address}
+          placeholder="0x..."
+          class="flex-1 p-2 border rounded-md dark:bg-gray-700 
+                 dark:border-gray-600 dark:text-white" 
+          class:border-red-500={!isValidAddress && address}
+          disabled={isLoading}
+        />
+        <button
+          type="button"
+          onclick={startNFCReading}
+          class="px-4 py-2 bg-blue-500 text-white rounded-md
+                 hover:bg-blue-600 dark:bg-blue-600 
+                 dark:hover:bg-blue-700 transition-colors
+                 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={isLoading}
+        >
+          Scan Card
+        </button>
+      </div>
+    </div>
+
+    <div>
+      <label for="amount" class="block font-medium mb-1 dark:text-gray-200">
+        Amount (MATIC)
+      </label>
+      <input
+        id="amount"
+        type="number"
+        bind:value={amount}
+        step="0.000001"
+        min="0"
+        class="w-full p-2 border rounded-md dark:bg-gray-700 
+               dark:border-gray-600 dark:text-white"
+        class:border-red-500={!isValidAmount && amount}
+        disabled={isLoading}
+      />
+    </div>
+
+    <footer class="flex justify-end gap-3 pt-4">
+      <button 
+        type="button"
+        onclick={() => {
+          onClose();
+          debugService.info('Payment: Modal closed by user');
+        }}
+        class="px-4 py-2 text-gray-700 bg-gray-100 rounded-md 
+               hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
+               dark:hover:bg-gray-600 transition-colors"
+        disabled={isLoading}
+      >
+        Cancel
+      </button>
+      
+      <button 
+        type="submit"
+        class="px-4 py-2 text-white bg-blue-500 rounded-md hover:bg-blue-600
+               dark:bg-blue-600 dark:hover:bg-blue-700 transition-colors
+               disabled:opacity-50 disabled:cursor-not-allowed"
+        class:opacity-50={!canSubmit}
+        disabled={!canSubmit}
+      >
+        {isLoading ? 'Processing...' : 'Send'}
+      </button>
+    </footer>
+  </form>
 {/if}
