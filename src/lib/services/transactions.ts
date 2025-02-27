@@ -19,6 +19,9 @@ class TransactionService {
         throw new Error('Paramètres de transaction invalides')
       }
       
+      // CORRECTION: S'assurer que la valeur est une chaîne
+      const valueStr = String(request.value);
+      
       // Vérifier si le portefeuille est connecté
       if (!walletService.isConnected()) {
         debugService.info(`TransactionService: Portefeuille non connecté, tentative de connexion avec PIN...`)
@@ -35,7 +38,11 @@ class TransactionService {
       if (!request.gasLimit) {
         try {
           debugService.debug(`TransactionService: Estimation du gaz pour la transaction...`)
-          request.gasLimit = await this.estimateGas(request)
+          request.gasLimit = await this.estimateGas({
+            ...request,
+            // CORRECTION: S'assurer que la valeur est une chaîne
+            value: valueStr
+          })
           debugService.info(`TransactionService: Gaz estimé: ${request.gasLimit}`)
         } catch (gasError) {
           debugService.warn(`TransactionService: Échec de l'estimation du gaz: ${gasError instanceof Error ? gasError.message : String(gasError)}`)
@@ -85,19 +92,23 @@ class TransactionService {
         const balance = await walletService.getBalance(address);
         debugService.info(`TransactionService: Solde actuel: ${balance.formatted} MATIC pour l'adresse ${address}`);
         
+        // CORRECTION: S'assurer que la valeur est une chaîne pour parseUnits
+        const valueStr = String(request.value);
+        
         // Calcul du coût total (montant + frais de gaz estimés)
         const gasLimit = BigInt(request.gasLimit);
         const gasPrice = BigInt(request.gasPrice);
         const gasCost = gasLimit * gasPrice;
         const gasCostMatic = formatUnits(gasCost, 18);
         
-        const txValue = parseUnits(request.value, 18);
+        // CORRECTION: Utiliser String(request.value) pour s'assurer que c'est une chaîne
+        const txValue = parseUnits(valueStr, 18);
         const totalCost = txValue + gasCost;
         const totalCostMatic = formatUnits(totalCost, 18);
         
         // Logs détaillés pour le débogage
         debugService.info(`TransactionService: Analyse des coûts:
-          - Montant de la transaction: ${request.value} MATIC
+          - Montant de la transaction: ${valueStr} MATIC
           - Coût de gaz estimé: ${gasCostMatic} MATIC (${gasLimit} * ${formatUnits(gasPrice, 9)} Gwei)
           - Coût total estimé: ${totalCostMatic} MATIC
           - Solde disponible: ${balance.formatted} MATIC
@@ -128,9 +139,10 @@ class TransactionService {
 
       // 4. Exécution de la transaction
       debugService.info(`TransactionService: ⚡ Envoi de la transaction...`)
+      // CORRECTION: Passer la valeur sous forme de chaîne
       const tx = await walletService.sendTransaction({
         to: request.to,
-        value: request.value,
+        value: String(request.value),
         gasPrice: request.gasPrice,
         gasLimit: request.gasLimit,
         data: request.data || '0x',
@@ -188,9 +200,13 @@ class TransactionService {
   async estimateGas(request: TransactionRequest): Promise<string> {
     try {
       debugService.debug(`TransactionService: Estimation du gaz pour transaction vers ${request.to}`)
+      
+      // CORRECTION: S'assurer que la valeur est une chaîne
+      const valueStr = String(request.value);
+      
       const estimated = await walletService.estimateGas({
         to: request.to,
-        value: request.value,
+        value: valueStr,
         data: request.data || '0x'
       })
 

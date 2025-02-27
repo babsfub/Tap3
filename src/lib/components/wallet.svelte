@@ -33,13 +33,29 @@
   let error = $state<string | null>(null);
   let isLoading = $state(false);
   let pinAction = $state<'unlock' | 'payment'>('unlock');
-
-  // Ajout d'un mécanisme pour s'assurer que PinModal est monté
-  let pinModalMounted = $state(false);
+  
+  // Variable pour stocker le gestionnaire de PIN pour les paiements
+  let paymentPinHandler = $state<((pin: string) => Promise<void>) | null>(null);
+  
+  // Variables d'état supplémentaires
+  let lastTransactionHash = $state<`0x${string}` | null>(null);
+  let lastTransactionStatus = $state<'pending' | 'success' | 'failed' | null>(null);
   
   // États pour le suivi du wallet
   let walletConnected = $state(false);
   let walletAddress = $state<string | null>(null);
+
+  // Mise à jour automatique du statut après les transactions
+  $effect(() => {
+    if (lastTransactionHash && lastTransactionStatus === 'pending') {
+      // Programmer une vérification après un court délai
+      const timer = setTimeout(() => {
+        void checkTransactionStatus(lastTransactionHash);
+      }, 5000);
+      
+      return () => clearTimeout(timer);
+    }
+  });
 
   // Check wallet connection status
   function updateWalletStatus() {
@@ -55,6 +71,27 @@
     }
   }
 
+  // Vérifier le statut d'une transaction
+  async function checkTransactionStatus(hash: `0x${string}` | null) {
+    if (!hash) return;
+    
+    try {
+      const status = await paymentState.checkTransactionStatus(hash);
+      if (status === 'confirmed') {
+        lastTransactionStatus = 'success';
+        showSuccessNotification('Transaction confirmée avec succès!');
+      } else if (status === 'failed') {
+        lastTransactionStatus = 'failed';
+        error = 'La transaction a échoué sur la blockchain';
+      } else {
+        // Reprogrammer une autre vérification si la transaction est toujours en attente
+        setTimeout(() => void checkTransactionStatus(hash), 10000);
+      }
+    } catch (e) {
+      debugService.error(`Error checking transaction status: ${e}`);
+    }
+  }
+
   // Initialize state from card store
   function updateFromCardState() {
     const state = cardState.getState();
@@ -65,13 +102,24 @@
     debugService.debug(`Card state updated: card=${currentCard?.id}, locked=${isCardLocked}, wallet connected=${walletConnected}`);
   }
 
+  // Afficher une notification de succès temporaire
+  function showSuccessNotification(message: string) {
+    const tmpError = error;
+    error = message;
+    setTimeout(() => {
+      // Ne réinitialiser que si le message n'a pas changé entre-temps
+      if (error === message) {
+        error = tmpError;
+      }
+    }, 3000);
+  }
+
   onMount(() => {
     debugService.info('Wallet component mounted');
     updateFromCardState();
-    pinModalMounted = false;
     
     // Log lorsque le composant est monté pour faciliter le débogage
-    console.log('Wallet component mounted, current card:', currentCard);
+    debugService.debug(`Wallet component mounted, current card: ${currentCard}`);
   });
 
   // Set up subscription for state changes
@@ -100,6 +148,7 @@
       setTimeout(() => {
         document.body.style.backgroundColor = '';
       }, 1000);
+      showSuccessNotification('Adresse copiée!');
     } catch (err) {
       error = 'Failed to copy address';
     }
@@ -112,40 +161,54 @@
       return;
     }
     
+    // Vérifier si la carte est déverrouillée
+    if (isCardLocked) {
+      debugService.info('Need to unlock card before payment');
+      showPinModal = true;
+      pinAction = 'unlock';
+      return;
+    }
+    
     debugService.info('Initiating payment from wallet');
     showPaymentModal = true;
   }
 
   // Initiate unlock process 
   function initiateUnlock() {
-  if (!currentCard) {
-    error = 'No card connected';
-    return;
+    if (!currentCard) {
+      error = 'No card connected';
+      return;
+    }
+    
+    debugService.info('Initiating card unlock process');
+    
+    // Définir l'action et le modal
+    pinAction = 'unlock';
+    showPinModal = true;
   }
-  
-  debugService.info('Initiating card unlock process');
-  
-  // Définir l'action et le modal
-  pinAction = 'unlock';
-  showPinModal = true;
-}
 
+  // Fonction explicite pour fermer le modal PIN
+  function closePinModal() {
+    debugService.info('Closing PIN modal');
+    showPinModal = false;
+    // Réinitialiser le gestionnaire de paiement à la fermeture
+    paymentPinHandler = null;
+  }
 
   // Unlock card with PIN - processus complet
   async function handlePinSubmit(pin: string) {
-    console.log('PIN submitted, starting processing');
     debugService.info('PIN submitted for processing');
     
     if (!currentCard) {
-      console.error('No card available for unlocking');
-      return;
+      debugService.error('No card available for unlocking');
+      throw new Error('Aucune carte disponible');
     }
 
     try {
       isLoading = true;
       
       if (pinAction === 'unlock') {
-        console.log('Unlocking card with PIN');
+        debugService.info('Unlocking card with PIN');
         // Déverrouiller la carte avec le PIN fourni
         const success = await cardState.unlockCard(pin);
         
@@ -168,20 +231,26 @@
           }
           
           // Succès - masquer le modal et effacer les erreurs
-          showPinModal = false;
+          closePinModal();
           error = null;
-          console.log('Unlock successful, PIN modal closed');
+          
+          // Si nous venons d'une tentative de paiement, continuer avec le paiement
+          if (showPaymentModal) {
+            debugService.info('Continuing to payment after unlock');
+            // Déjà sur la modal de paiement, pas besoin de l'ouvrir à nouveau
+          } else if (pinAction === 'unlock') {
+            showSuccessNotification('Carte déverrouillée avec succès');
+          }
         } else {
           throw new Error('Invalid PIN or connection failed');
         }
       } else if (pinAction === 'payment') {
-        // Gestion des actions de paiement
-        showPinModal = false;
+        // Cette logique est maintenant gérée via paymentPinHandler
+        closePinModal();
       }
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to unlock card';
       debugService.error(`Unlock error: ${error}`);
-      console.error('PIN processing error:', error);
     } finally {
       isLoading = false;
     }
@@ -191,11 +260,25 @@
   async function handlePaymentSubmit(to: Address, amount: string, pin: string) {
     try {
       debugService.info(`Processing payment: ${amount} MATIC to ${to}`);
-      await paymentState.sendTransaction(to, amount, pin);
-      showPaymentModal = false;
+      const hash = await paymentState.sendTransaction(to, amount, pin);
       
-      updateWalletStatus();
+      if (hash) {
+        // Stocker le hash pour surveillance
+        lastTransactionHash = hash;
+        lastTransactionStatus = 'pending';
+        
+        // Fermer modal et mettre à jour l'état
+        showPaymentModal = false;
+        updateWalletStatus();
+        
+        // Afficher une notification de succès
+        showSuccessNotification(`Transaction envoyée! Hash: ${hash.substring(0, 10)}...`);
+        
+        // Déclencher vérification après un délai
+        setTimeout(() => void checkTransactionStatus(hash), 5000);
+      }
       
+      // Mettre à jour l'état de verrouillage si nécessaire
       if (isCardLocked && walletConnected) {
         debugService.info('Payment successful but card still locked in UI, updating state');
         isCardLocked = false;
@@ -204,12 +287,6 @@
       debugService.error(`Payment failed: ${err}`);
       error = err instanceof Error ? err.message : 'Payment failed';
     }
-  }
-
-  // Fonction explicite pour fermer le modal PIN
-  function closePinModal() {
-    console.log('Closing PIN modal');
-    showPinModal = false;
   }
 </script>
 
@@ -227,6 +304,12 @@
       >
         ×
       </button>
+    </div>
+  {/if}
+
+  {#if lastTransactionStatus === 'pending' && lastTransactionHash}
+    <div class="fixed top-12 left-0 right-0 bg-yellow-500 text-white p-2 text-center z-40">
+      Transaction en cours... Hash: {lastTransactionHash.substring(0, 8)}...
     </div>
   {/if}
 
@@ -282,70 +365,66 @@
 
   <!-- Render PIN modal - simplification des tests de visibilité -->
   {#if showPinModal}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
-      <PinModal 
-        onSubmit={async (pin) => {
-          debugService.info('PIN submitted, processing...');
-          try {
-            await handlePinSubmit(pin);
-          } catch (e) {
-            debugService.error(`Error in PIN processing: ${e}`);
-            // Ne pas fermer le modal en cas d'erreur
-          }
-        }}
-        onClose={() => {
-          debugService.info('PIN modal closed by user');
-          showPinModal = false;
-        }}
-        title={pinAction === 'unlock' ? 'Unlock Card' : 'Enter PIN'}
-      />
-    </div>
-  </div>
-{/if}
-
-{#if showPaymentModal}
-  <div class="fixed inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
-      <PaymentModal
-        onSubmit={handlePaymentSubmit}
-        onClose={() => {
-          debugService.info('Payment modal closed by user');
-          showPaymentModal = false;
-        }}
-        showPinFn={(action, onPinSubmit) => {
-          // Stocker la fonction de soumission du PIN
-          debugService.info(`Payment requested PIN modal for action: ${action}`);
-          
-          // Mettre à jour l'état pinAction
-          pinAction = 'payment';
-          
-          // Custom handler for payment PIN submission
-          const customPinHandler = async (pin: string) => {
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
+        <PinModal 
+          onSubmit={async (pin) => {
+            debugService.info('PIN submitted from modal, processing...');
             try {
-              debugService.info('Handling payment PIN submission');
-              await onPinSubmit(pin);
-              // Si onPinSubmit se termine sans erreur, fermer le modal PIN
-              showPinModal = false;
+              // Si pinAction est 'payment', alors c'est le paiement qui a demandé le PIN
+              if (pinAction === 'payment') {
+                // Vérifier si nous sommes en mode paiement et qu'un gestionnaire est disponible
+                if (paymentPinHandler) {
+                  debugService.info('Handling payment PIN submission');
+                  await paymentPinHandler(pin);
+                } else {
+                  debugService.error('No payment PIN handler available');
+                  throw new Error('Configuration de paiement incorrecte');
+                }
+              } else {
+                // Sinon, c'est un déverrouillage normal de carte
+                await handlePinSubmit(pin);
+              }
             } catch (e) {
-              debugService.error(`Error in payment PIN handling: ${e}`);
-              // Laisser le modal PIN ouvert en cas d'erreur
+              debugService.error(`Error in PIN processing: ${e instanceof Error ? e.message : String(e)}`);
+              error = e instanceof Error ? e.message : 'Échec du traitement du PIN';
+              // Ne pas fermer le modal en cas d'erreur pour permettre de réessayer
             }
-          };
-          
-          // Stocker le handler personnalisé pour que le modal PIN l'utilise
-          const currentHandler = customPinHandler;
-          
-          // Afficher le modal PIN
-          showPinModal = true;
-          
-          debugService.info('PIN modal opened for payment');
-        }}
-      />
+          }}
+          onClose={() => closePinModal()}
+          title={pinAction === 'unlock' ? 'Unlock Card' : 'Enter PIN'}
+        />
+      </div>
     </div>
-  </div>
-{/if}
+  {/if}
 
+  {#if showPaymentModal && currentCard}
+    <div class="fixed inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
+        <PaymentModal
+          onClose={() => {
+            showPaymentModal = false;
+            paymentPinHandler = null; // Nettoyage du gestionnaire
+          }}
+          onSubmit={handlePaymentSubmit}
+          showPinFn={(action, onPinSubmit) => {
+            debugService.info(`Payment requested PIN modal for action: ${action}`);
+            
+            // Mettre à jour l'état pinAction
+            pinAction = 'payment';
+            
+            // Stocker le gestionnaire pour l'utiliser quand le PIN est soumis
+            paymentPinHandler = onPinSubmit;
+            
+            // Afficher le modal PIN
+            showPinModal = true;
+            
+            debugService.info('PIN modal opened for payment');
+          }}
+        />
+      </div>
+    </div>
+  {/if}
 
   {#if showQRCode && currentCard?.pub}
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -358,8 +437,6 @@
     </div>
   {/if}
 
-  
-
   <!-- Bouton de débogage pour forcer l'affichage du modal PIN (développement uniquement) -->
   {#if import.meta.env.DEV}
     <div class="fixed bottom-4 right-4 flex flex-col gap-2">
@@ -367,7 +444,7 @@
         class="bg-purple-600 text-white px-3 py-1 rounded-lg text-sm shadow"
         onclick={() => {
           showPinModal = true;
-          console.log('PIN modal forced to show');
+          debugService.debug('PIN modal forced to show');
         }}
       >
         Force Show PIN Modal

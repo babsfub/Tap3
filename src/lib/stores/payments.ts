@@ -40,6 +40,9 @@ export function createPaymentState(initialState: PaymentState = { status: 'idle'
         // Vérifier le solde avant l'envoi
         try {
           const address = walletService.getAddress();
+          if (!address) {
+            throw new Error('Wallet address is null');
+          }
           const balance = await walletService.getBalance(address);
           debugService.info(`Current balance: ${formatUnits(balance.value, 18)} MATIC`);
           
@@ -104,6 +107,17 @@ export function createPaymentState(initialState: PaymentState = { status: 'idle'
       while (attempts < 120 && !await checkStatus()) {
         await new Promise(resolve => setTimeout(resolve, 5000));
         attempts++;
+      }
+    },
+
+    // Nouvelle méthode pour vérifier le statut d'une transaction
+    async checkTransactionStatus(hash: Hash): Promise<'pending' | 'confirmed' | 'failed'> {
+      try {
+        debugService.debug(`Checking status of transaction ${hash}...`);
+        return await transactionService.getTransactionStatus(hash);
+      } catch (err) {
+        debugService.error(`Failed to check transaction status: ${err}`);
+        return 'pending'; // Par défaut, on considère que la transaction est en attente
       }
     },
 

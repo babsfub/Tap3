@@ -130,7 +130,14 @@
     // Show PIN modal using the parent's function if available
     if (showPinFn) {
       debugService.info('Payment: Using parent function to show PIN modal');
-      showPinFn('payment', handlePinSubmit);
+      
+      // CORRECTION CRITIQUE: S'assurer que handlePinSubmit est correctement appelé
+      // quand le PIN est soumis dans le modal
+      showPinFn('payment', async (pin: string) => {
+        // Cette fonction sera appelée par le PinModal
+        debugService.info(`Payment: PIN received from modal, forwarding to handlePinSubmit`);
+        return handlePinSubmit(pin);
+      });
     } else {
       // Fallback for backward compatibility
       debugService.warn('Payment: No showPinFn provided, cannot show PIN modal');
@@ -142,7 +149,7 @@
     if (!pendingTo || !pendingAmount || !currentCard) {
       debugService.error('Payment: Incomplete transaction data when submitting PIN');
       logStep('❌ Incomplete transaction data');
-      return;
+      throw new Error('Données de transaction incomplètes');
     }
     
     logStep('PIN submitted, processing transaction...');
@@ -166,26 +173,60 @@
         throw new Error(`Wallet initialization failed: ${initError instanceof Error ? initError.message : 'Unknown error'}`);
       }
       
-      // Connect card with PIN - sans limite stricte de tentatives
+      // Connect card with PIN - clear logging for debugging
       logStep('Connecting card with PIN...');
       let connected = false;
       
-      // On incrémente connectionAttempts uniquement pour le logging
       connectionAttempts++;
       try {
+        // Ajout d'un log plus détaillé
+        debugService.info(`Payment: Attempt ${connectionAttempts} to connect with PIN: ${pin ? '****' : 'empty'}`);
         logStep(`Tentative de connexion avec le PIN fourni...`);
+        
         connected = await walletService.connectCard(currentCard, pin);
         
+        // Vérification explicite du résultat et logging détaillé
         if (!connected) {
+          debugService.error(`Payment: Connection result is false - PIN likely incorrect`);
           logStep(`Échec de connexion - le PIN est probablement incorrect`);
           throw new Error('PIN incorrect. Veuillez vérifier votre mot de passe et réessayer.');
         } else {
+          debugService.info(`Payment: Card successfully connected!`);
           logStep(`Carte connectée avec succès`);
         }
       } catch (connError) {
+        debugService.error(`Payment: Connection error: ${connError instanceof Error ? connError.message : String(connError)}`);
         logStep(`❌ Erreur de connexion: ${connError instanceof Error ? connError.message : String(connError)}`);
         throw new Error(`Échec de connexion: ${connError instanceof Error ? connError.message : 'PIN incorrect'}`);
       }
+      
+      // CORRECTION CRITIQUE: Attendre explicitement que la connexion soit établie
+      // et vérifier que l'adresse est disponible avant de continuer
+      logStep('Verifying wallet connection...');
+      let connectionRetries = 0;
+      const maxRetries = 5;
+      
+      while (!walletService.isConnected() && connectionRetries < maxRetries) {
+        debugService.info(`Payment: Waiting for wallet connection (attempt ${connectionRetries + 1}/${maxRetries})...`);
+        // Pause pour laisser le temps au wallet de se connecter
+        await new Promise(resolve => setTimeout(resolve, 500));
+        connectionRetries++;
+      }
+      
+      if (!walletService.isConnected()) {
+        debugService.error(`Payment: Failed to confirm wallet connection after ${maxRetries} attempts`);
+        throw new Error('Impossible de confirmer la connexion du portefeuille');
+      }
+      
+      // Vérifier explicitement que l'adresse est disponible
+      const address = walletService.getAddress({ throwIfNotConnected: true });
+      if (!address) {
+        debugService.error(`Payment: Address not available after connection`);
+        throw new Error("Adresse du portefeuille non disponible après connexion");
+      }
+      
+      debugService.info(`Payment: Wallet confirmed connected with address ${address}`);
+      logStep(`Wallet connected to address ${address}`);
       
       // Unlock card state AFTER successful connection
       logStep('Unlocking card state...');
@@ -194,21 +235,9 @@
       // Wait to ensure state changes are propagated
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Verify wallet is connected and address is available
-      logStep('Verifying wallet connection...');
-      if (!walletService.isConnected()) {
-        throw new Error('Portefeuille non connecté - le PIN fourni est probablement incorrect');
-      }
-      
-      const address = walletService.getAddress();
-      if (!address) {
-        throw new Error('Unable to obtain wallet address after connection');
-      }
-      
-      logStep(`Wallet connected to address ${address}`);
-      
       // Submit transaction with all information
       logStep(`Sending transaction: ${pendingAmount} MATIC to ${pendingTo}`);
+      debugService.info(`Payment: Executing transaction: ${pendingAmount} MATIC to ${pendingTo}`);
       await onSubmit(pendingTo, pendingAmount, pin);
       
       // Cleanup after success
