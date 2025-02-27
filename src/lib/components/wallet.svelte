@@ -305,7 +305,7 @@
 {/if}
 
 {#if showPaymentModal}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+  <div class="fixed inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-sm">
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
       <PaymentModal
         onSubmit={handlePaymentSubmit}
