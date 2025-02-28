@@ -29,7 +29,6 @@
   
   // Update balance without creating reactivity loops
   async function updateBalance() {
-    // Guard clauses to prevent unnecessary updates
     if (!isActive || isUpdating) return;
     
     const cardInfo = getCardInfo();
@@ -80,7 +79,6 @@
     
     isActive = false;
     
-    // Only clear global instance if this instance is the active one
     if (ACTIVE_INSTANCE === INSTANCE_ID) {
       ACTIVE_INSTANCE = null;
     }
@@ -88,20 +86,16 @@
   
   // Start polling with safeguards against multiple instances
   function startPolling() {
-    // Prevent multiple active instances
     if (ACTIVE_INSTANCE && ACTIVE_INSTANCE !== INSTANCE_ID) {
       (`[${INSTANCE_ID}] Not starting polling: another instance (${ACTIVE_INSTANCE}) is already active`);
       return;
     }
     
-    // First stop any existing polls to clean up
     stopAllPolling();
     
-    // Register as active
     ACTIVE_INSTANCE = INSTANCE_ID;
     isActive = true;
     
-    // Check if card is available
     const cardInfo = getCardInfo();
     if (!cardInfo?.pub) {
       (`[${INSTANCE_ID}] Not starting polling: no card connected`);
@@ -110,32 +104,27 @@
       return;
     }
     
-    // Convert interval to milliseconds
     const msInterval = updateInterval * 1000;
     
-    // Immediate updates
     void updateBalance();
     void updateMaticPrice();
     
-    // Set intervals for regular updates
     balanceIntervalId = window.setInterval(() => {
       void updateBalance();
     }, msInterval);
     
     priceIntervalId = window.setInterval(() => {
       void updateMaticPrice();
-    }, 5 * 60 * 1000); // 5 minutes
+    }, 5 * 60 * 1000); 
     
     (`[${INSTANCE_ID}] Balance polling started (${updateInterval}s interval)`);
   }
   
-  // Manual card state check function - not reactive
   function checkCardChanged() {
     const cardInfo = getCardInfo();
     return !!cardInfo?.pub;
   }
   
-  // Setup and teardown
   onMount(() => {
    (`[${INSTANCE_ID}] BalanceUpdater mounted`);
     

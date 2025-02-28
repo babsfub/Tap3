@@ -8,19 +8,20 @@
   import { nfcService } from '$lib/services/nfc.js';
   import { debugService } from '$lib/services/DebugService.js';
   import { walletService } from '$lib/services/wallet.js';
-  
+  import { useHistoryState } from '$lib/stores/history.js'; 
+
   let { onSubmit, onClose, showPinFn, reusePreviousPin = false } = $props<{
     onSubmit: (to: Address, amount: string, pin: string) => Promise<void>;
     onClose: () => void;
     showPinFn?: (action: string, onPinSubmit: (pin: string) => Promise<void>) => void;
-    reusePreviousPin?: boolean; // Nouvelle prop pour réutiliser le PIN précédent
+    reusePreviousPin?: boolean; 
   }>();
 
   const paymentState = usePaymentState();
   const cardState = useCardState();
-
+  const historyState = useHistoryState();
   // État des composants - mode scan par défaut
-  let scanMode = $state(true); // Commencer directement en mode scan
+  let scanMode = $state(true); 
   let address = $state('');
   let amount = $state('');
   let processingPayment = $state(false);
@@ -71,7 +72,7 @@
         // Update address and hide NFC reader
         debugService.info(`Payment: Recipient address set: ${cardInfo.pub}`);
         address = cardInfo.pub;
-        scanMode = false; // Désactiver le mode scan après lecture réussie
+        scanMode = false; 
         error = null;
       } else {
         const errorMsg = 'Invalid recipient card - missing address';
@@ -149,8 +150,7 @@
     }
     
     debugService.info(`Payment: 📝 Transaction requested: ${amount} MATIC to ${address}`);
-    
-    // Store values for confirmation
+   
     pendingTo = address as Address;
     pendingAmount = amount;
     
@@ -158,19 +158,15 @@
     debugSteps = [];
     logStep('Transaction initiated');
     
-    // Si reusePreviousPin est true et que walletService est connecté,
-    // on peut procéder directement au paiement sans demander le PIN
     if (reusePreviousPin && walletService.isConnected()) {
       debugService.info('Payment: Wallet already connected, processing payment without PIN');
       try {
         await handlePaymentWithoutPin();
       } catch (error) {
-        // En cas d'erreur, on revient à la demande de PIN classique
         debugService.warn(`Payment: Direct payment failed, falling back to PIN: ${error}`);
         requestPIN();
       }
     } else {
-      // Demander le PIN normalement
       requestPIN();
     }
   }
@@ -185,7 +181,6 @@
     processingPayment = true;
     
     try {
-      // On utilise une chaîne vide comme PIN car le wallet est déjà connecté
       await onSubmit(pendingTo, pendingAmount, '');
       logStep('✅ Transaction submitted successfully!');
       onClose();
@@ -201,7 +196,6 @@
     }
   }
   
-  // Fonction pour demander le PIN
   function requestPIN() {
     if (showPinFn) {
       debugService.info('Payment: Using parent function to show PIN modal');
@@ -268,10 +262,9 @@
         throw new Error(`Échec de connexion: ${connError instanceof Error ? connError.message : 'PIN incorrect'}`);
       }
       
-      // Vérifier la connexion du wallet
       logStep('Verifying wallet connection...');
       let connectionRetries = 0;
-      const maxRetries = 5;
+      const maxRetries = 500;
       
       while (!walletService.isConnected() && connectionRetries < maxRetries) {
         debugService.info(`Payment: Waiting for wallet connection (attempt ${connectionRetries + 1}/${maxRetries})...`);
@@ -304,7 +297,9 @@
       // Soumettre la transaction
       logStep(`Sending transaction: ${pendingAmount} MATIC to ${pendingTo}`);
       debugService.info(`Payment: Executing transaction: ${pendingAmount} MATIC to ${pendingTo}`);
+      
       await onSubmit(pendingTo, pendingAmount, pin);
+      
       
       // Nettoyage après succès
       logStep('✅ Transaction submitted successfully!');
