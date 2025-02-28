@@ -99,7 +99,6 @@
     isCardLocked = state.isLocked;
     balance = cardState.getFormattedBalance();
     updateWalletStatus(); // Check wallet status whenever card state updates
-    debugService.debug(`Card state updated: card=${currentCard?.id}, locked=${isCardLocked}, wallet connected=${walletConnected}`);
   }
 
   // Afficher une notification de succès temporaire
