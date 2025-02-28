@@ -33,7 +33,8 @@
   let error = $state<string | null>(null);
   let isLoading = $state(false);
   let pinAction = $state<'unlock' | 'payment'>('unlock');
-  
+  let recentlyUnlocked = $state(false);
+  let pinUsedForUnlock = $state<string | null>(null);
   // Variable pour stocker le gestionnaire de PIN pour les paiements
   let paymentPinHandler = $state<((pin: string) => Promise<void>) | null>(null);
   
@@ -196,26 +197,36 @@
 
   // Unlock card with PIN - processus complet
   async function handlePinSubmit(pin: string) {
-    debugService.info('PIN submitted for processing');
-    
-    if (!currentCard) {
-      debugService.error('No card available for unlocking');
-      throw new Error('Aucune carte disponible');
-    }
+  debugService.info('PIN submitted for processing');
+  
+  if (!currentCard) {
+    debugService.error('No card available for unlocking');
+    throw new Error('Aucune carte disponible');
+  }
 
-    try {
-      isLoading = true;
+  try {
+    isLoading = true;
+    
+    if (pinAction === 'unlock') {
+      debugService.info('Unlocking card with PIN');
+      // Déverrouiller la carte avec le PIN fourni
+      const success = await cardState.unlockCard(pin);
       
-      if (pinAction === 'unlock') {
-        debugService.info('Unlocking card with PIN');
-        // Déverrouiller la carte avec le PIN fourni
-        const success = await cardState.unlockCard(pin);
+      if (success) {
+        // Marquer comme récemment déverrouillé et stocker le PIN temporairement
+        recentlyUnlocked = true;
+        pinUsedForUnlock = pin;
         
-        if (success) {
-          // Vérifier le statut du wallet après déverrouillage
-          updateWalletStatus();
-          debugService.info(`Card unlocked successfully, wallet connected: ${walletConnected}`);
-          
+        // Définir un délai pour réinitialiser l'état "récemment déverrouillé"
+        setTimeout(() => {
+          recentlyUnlocked = false;
+          pinUsedForUnlock = null;
+          debugService.debug('Reset recently unlocked state');
+        }, 2 * 60 * 1000); // 5 minutes
+        
+        // Vérifier le statut du wallet
+        updateWalletStatus();
+        debugService.info(`Card unlocked successfully, wallet connected: ${walletConnected}`);
           if (!walletConnected) {
             // Tentative de connexion directe si le wallet n'est pas connecté
             debugService.warn('Wallet not connected after card unlock, trying direct connection');

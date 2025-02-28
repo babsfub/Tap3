@@ -3,28 +3,30 @@
   import { isAddress } from 'viem';
   import type { Address } from 'viem';
   import type { CardInfo } from '$lib/types.js';
-  import NFCReader from './NFCReader.svelte';
   import { usePaymentState } from '$lib/stores/payments.js';
   import { useCardState } from '$lib/stores/card.js';
   import { nfcService } from '$lib/services/nfc.js';
   import { debugService } from '$lib/services/DebugService.js';
   import { walletService } from '$lib/services/wallet.js';
   
-  let { onSubmit, onClose, showPinFn } = $props<{
+  let { onSubmit, onClose, showPinFn, reusePreviousPin = false } = $props<{
     onSubmit: (to: Address, amount: string, pin: string) => Promise<void>;
     onClose: () => void;
     showPinFn?: (action: string, onPinSubmit: (pin: string) => Promise<void>) => void;
+    reusePreviousPin?: boolean; // Nouvelle prop pour réutiliser le PIN précédent
   }>();
 
   const paymentState = usePaymentState();
   const cardState = useCardState();
 
-  let showNFCReader = $state(false);
+  // État des composants - mode scan par défaut
+  let scanMode = $state(true); // Commencer directement en mode scan
   let address = $state('');
   let amount = $state('');
   let processingPayment = $state(false);
   let connectionAttempts = $state(0);
   
+  // États dérivés
   let currentCard = $derived(cardState.getState().currentCard);
   let paymentStatus = $derived(paymentState.getState().status);
   let error = $state<string | null>(null);
@@ -44,6 +46,7 @@
     debugService.info(`Payment process: ${step}`);
   }
 
+  // Fonction pour gérer la lecture de la carte destinataire
   async function handleRecipientCardRead(cardInfo: CardInfo) {
     try {
       debugService.info(`Payment: Recipient card read, ID: ${cardInfo.id}`);
@@ -68,7 +71,7 @@
         // Update address and hide NFC reader
         debugService.info(`Payment: Recipient address set: ${cardInfo.pub}`);
         address = cardInfo.pub;
-        showNFCReader = false;
+        scanMode = false; // Désactiver le mode scan après lecture réussie
         error = null;
       } else {
         const errorMsg = 'Invalid recipient card - missing address';
@@ -82,8 +85,19 @@
     }
   }
 
-  async function startNFCReading(e: Event) {
-    // Prevent default behavior
+  // Fonction pour basculer entre les modes de saisie d'adresse
+  function toggleInputMode() {
+    scanMode = !scanMode;
+    
+    if (scanMode) {
+      // Activer directement le lecteur NFC quand on passe en mode scan
+      void startNFCReading();
+    }
+  }
+
+  // Démarrer la lecture NFC
+  async function startNFCReading(e?: Event) {
+    // Prevent default behavior if called from event
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     
     error = null;
@@ -100,9 +114,26 @@
       debugService.debug('Payment: Waiting before restarting NFC reader...');
       await new Promise(resolve => setTimeout(resolve, 400));
       
-      // After cleanup, show NFC reader
-      debugService.info('Payment: Showing NFC reader');
-      showNFCReader = true;
+      // Activer directement le lecteur NFC sans passer par showNFCReader
+      await nfcService.startReading({
+        mode: 'payment',
+        onRead: ({ cardInfo, isValid }) => {
+          if (!isValid) {
+            error = 'Invalid card';
+            return;
+          }
+          void handleRecipientCardRead(cardInfo);
+        },
+        onError: (err) => {
+          error = err.message;
+          debugService.error(`Payment: NFC reader error: ${err.message}`);
+        },
+        onStateChange: (state) => {
+          debugService.debug(`Payment: NFC reader state: ${state}`);
+        }
+      });
+      
+      debugService.info('Payment: NFC reader started successfully');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to start NFC reader';
       debugService.error(`Payment: ❌ ${errorMsg}`);
@@ -127,19 +158,58 @@
     debugSteps = [];
     logStep('Transaction initiated');
     
-    // Show PIN modal using the parent's function if available
+    // Si reusePreviousPin est true et que walletService est connecté,
+    // on peut procéder directement au paiement sans demander le PIN
+    if (reusePreviousPin && walletService.isConnected()) {
+      debugService.info('Payment: Wallet already connected, processing payment without PIN');
+      try {
+        await handlePaymentWithoutPin();
+      } catch (error) {
+        // En cas d'erreur, on revient à la demande de PIN classique
+        debugService.warn(`Payment: Direct payment failed, falling back to PIN: ${error}`);
+        requestPIN();
+      }
+    } else {
+      // Demander le PIN normalement
+      requestPIN();
+    }
+  }
+  
+  // Nouvelle fonction pour traiter le paiement sans PIN
+  async function handlePaymentWithoutPin() {
+    if (!pendingTo || !pendingAmount || !currentCard) {
+      throw new Error('Données de transaction incomplètes');
+    }
+    
+    logStep('Processing transaction without PIN request...');
+    processingPayment = true;
+    
+    try {
+      // On utilise une chaîne vide comme PIN car le wallet est déjà connecté
+      await onSubmit(pendingTo, pendingAmount, '');
+      logStep('✅ Transaction submitted successfully!');
+      onClose();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Payment failed';
+      logStep(`❌ Transaction failed: ${errorMsg}`);
+      error = errorMsg;
+      throw err;
+    } finally {
+      processingPayment = false;
+      pendingTo = null;
+      pendingAmount = null;
+    }
+  }
+  
+  // Fonction pour demander le PIN
+  function requestPIN() {
     if (showPinFn) {
       debugService.info('Payment: Using parent function to show PIN modal');
-      
-      // CORRECTION CRITIQUE: S'assurer que handlePinSubmit est correctement appelé
-      // quand le PIN est soumis dans le modal
       showPinFn('payment', async (pin: string) => {
-        // Cette fonction sera appelée par le PinModal
         debugService.info(`Payment: PIN received from modal, forwarding to handlePinSubmit`);
         return handlePinSubmit(pin);
       });
     } else {
-      // Fallback for backward compatibility
       debugService.warn('Payment: No showPinFn provided, cannot show PIN modal');
       error = 'Cannot proceed with payment: PIN verification not available';
     }
@@ -179,13 +249,11 @@
       
       connectionAttempts++;
       try {
-        // Ajout d'un log plus détaillé
         debugService.info(`Payment: Attempt ${connectionAttempts} to connect with PIN: ${pin ? '****' : 'empty'}`);
         logStep(`Tentative de connexion avec le PIN fourni...`);
         
         connected = await walletService.connectCard(currentCard, pin);
         
-        // Vérification explicite du résultat et logging détaillé
         if (!connected) {
           debugService.error(`Payment: Connection result is false - PIN likely incorrect`);
           logStep(`Échec de connexion - le PIN est probablement incorrect`);
@@ -200,15 +268,13 @@
         throw new Error(`Échec de connexion: ${connError instanceof Error ? connError.message : 'PIN incorrect'}`);
       }
       
-      // CORRECTION CRITIQUE: Attendre explicitement que la connexion soit établie
-      // et vérifier que l'adresse est disponible avant de continuer
+      // Vérifier la connexion du wallet
       logStep('Verifying wallet connection...');
       let connectionRetries = 0;
       const maxRetries = 5;
       
       while (!walletService.isConnected() && connectionRetries < maxRetries) {
         debugService.info(`Payment: Waiting for wallet connection (attempt ${connectionRetries + 1}/${maxRetries})...`);
-        // Pause pour laisser le temps au wallet de se connecter
         await new Promise(resolve => setTimeout(resolve, 500));
         connectionRetries++;
       }
@@ -218,7 +284,7 @@
         throw new Error('Impossible de confirmer la connexion du portefeuille');
       }
       
-      // Vérifier explicitement que l'adresse est disponible
+      // Vérifier l'adresse
       const address = walletService.getAddress({ throwIfNotConnected: true });
       if (!address) {
         debugService.error(`Payment: Address not available after connection`);
@@ -228,19 +294,19 @@
       debugService.info(`Payment: Wallet confirmed connected with address ${address}`);
       logStep(`Wallet connected to address ${address}`);
       
-      // Unlock card state AFTER successful connection
+      // Déverrouiller la carte localement
       logStep('Unlocking card state...');
       cardState.unlockCard();
       
-      // Wait to ensure state changes are propagated
+      // Attendre que les changements d'état se propagent
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Submit transaction with all information
+      // Soumettre la transaction
       logStep(`Sending transaction: ${pendingAmount} MATIC to ${pendingTo}`);
       debugService.info(`Payment: Executing transaction: ${pendingAmount} MATIC to ${pendingTo}`);
       await onSubmit(pendingTo, pendingAmount, pin);
       
-      // Cleanup after success
+      // Nettoyage après succès
       logStep('✅ Transaction submitted successfully!');
       onClose();
     } catch (err) {
@@ -249,11 +315,11 @@
       debugService.error(`Payment: ❌ Transaction failed: ${errorMsg}`);
       error = errorMsg;
       
-      // Lock card for security
+      // Verrouiller la carte pour la sécurité
       debugService.debug('Payment: Locking card after failure');
       cardState.lockCard();
       
-      // Explicitly disconnect wallet on error
+      // Déconnecter le wallet en cas d'erreur
       try {
         await walletService.disconnect();
         debugService.debug('Payment: Wallet disconnected after failure');
@@ -296,98 +362,88 @@
   </div>
 {/if}
 
-{#if showNFCReader}
-  <NFCReader
-    mode="payment"
-    onRead={handleRecipientCardRead}
-    onError={(message) => {
-      error = message;
-      debugService.error(`Payment: NFC reader error: ${message}`);
-    }}
-    onSuccess={() => {
-      error = null;
-      debugService.info('Payment: NFC reader completed successfully');
-    }}
-    onClose={() => {
-      showNFCReader = false;
-      error = null;
-      debugService.info('Payment: NFC reader closed');
-    }}
-    updateCardState={false} 
-  />
-{:else}
-  <form onsubmit={handleSubmit} class="space-y-4">
-    <div>
-      <label for="address" class="block font-medium mb-1 dark:text-gray-200">
-        Recipient Address
+<form onsubmit={handleSubmit} class="space-y-4">
+  <div>
+    <div class="flex justify-between items-center mb-2">
+      <label for="address" class="font-medium dark:text-gray-200">
+        Recipient
       </label>
-      <div class="flex gap-2">
-        <input
-          id="address"
-          type="text"
-          bind:value={address}
-          placeholder="0x..."
-          class="flex-1 p-2 border rounded-md dark:bg-gray-700 
-                 dark:border-gray-600 dark:text-white" 
-          class:border-red-500={!isValidAddress && address}
-          disabled={isLoading}
-        />
-        <button
-          type="button"
-          onclick={startNFCReading}
-          class="px-4 py-2 bg-blue-500 text-white rounded-md
-                 hover:bg-blue-600 dark:bg-blue-600 
-                 dark:hover:bg-blue-700 transition-colors
-                 disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={isLoading}
-        >
-          Scan Card
-        </button>
-      </div>
+      <button 
+        type="button" 
+        onclick={toggleInputMode}
+        class="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+      >
+        {scanMode ? 'Enter Address Manually' : 'Scan Card'}
+      </button>
     </div>
-
-    <div>
-      <label for="amount" class="block font-medium mb-1 dark:text-gray-200">
-        Amount (MATIC)
-      </label>
+    
+    {#if scanMode}
+      <!-- Mode scan - Lecteur NFC directement intégré -->
+      <div class="p-4 border rounded-md bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+        <div class="text-center">
+          <p class="mb-4 text-blue-700 dark:text-blue-300">
+            Hold recipient card near your device
+          </p>
+          <div class="w-12 h-12 mx-auto rounded-full border-4 border-blue-500 
+                    border-t-transparent animate-spin"></div>
+        </div>
+      </div>
+    {:else}
+      <!-- Mode manuel - Input d'adresse -->
       <input
-        id="amount"
-        type="number"
-        bind:value={amount}
-        step="0.000001"
-        min="0"
+        id="address"
+        type="text"
+        bind:value={address}
+        placeholder="0x..."
         class="w-full p-2 border rounded-md dark:bg-gray-700 
-               dark:border-gray-600 dark:text-white"
-        class:border-red-500={!isValidAmount && amount}
+               dark:border-gray-600 dark:text-white" 
+        class:border-red-500={!isValidAddress && address}
         disabled={isLoading}
       />
-    </div>
+    {/if}
+  </div>
 
-    <footer class="flex justify-end gap-3 pt-4">
-      <button 
-        type="button"
-        onclick={() => {
-          onClose();
-          debugService.info('Payment: Modal closed by user');
-        }}
-        class="px-4 py-2 text-gray-700 bg-gray-100 rounded-md 
-               hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
-               dark:hover:bg-gray-600 transition-colors"
-        disabled={isLoading}
-      >
-        Cancel
-      </button>
-      
-      <button 
-        type="submit"
-        class="px-4 py-2 text-white bg-blue-500 rounded-md hover:bg-blue-600
-               dark:bg-blue-600 dark:hover:bg-blue-700 transition-colors
-               disabled:opacity-50 disabled:cursor-not-allowed"
-        class:opacity-50={!canSubmit}
-        disabled={!canSubmit}
-      >
-        {isLoading ? 'Processing...' : 'Send'}
-      </button>
-    </footer>
-  </form>
-{/if}
+  <div>
+    <label for="amount" class="block font-medium mb-1 dark:text-gray-200">
+      Amount (MATIC)
+    </label>
+    <input
+      id="amount"
+      type="number"
+      bind:value={amount}
+      step="0.000001"
+      min="0"
+      class="w-full p-2 border rounded-md dark:bg-gray-700 
+             dark:border-gray-600 dark:text-white"
+      class:border-red-500={!isValidAmount && amount}
+      disabled={isLoading}
+    />
+  </div>
+
+  <footer class="flex justify-end gap-3 pt-4">
+    <button 
+      type="button"
+      onclick={() => {
+        onClose();
+        debugService.info('Payment: Modal closed by user');
+      }}
+      class="px-4 py-2 text-gray-700 bg-gray-100 rounded-md 
+             hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300
+             dark:hover:bg-gray-600 transition-colors"
+      disabled={isLoading}
+    >
+      Cancel
+    </button>
+    
+    <button 
+      type="submit"
+      class="px-4 py-2 text-white bg-blue-500 rounded-md hover:bg-blue-600
+             dark:bg-blue-600 dark:hover:bg-blue-700 transition-colors
+             disabled:opacity-50 disabled:cursor-not-allowed"
+      class:opacity-50={!canSubmit}
+      disabled={!canSubmit}
+    >
+      {isLoading ? 'Processing...' : 'Send'}
+    </button>
+  </footer>
+</form>
